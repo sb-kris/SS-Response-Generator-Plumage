@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Plumage app icon — bright indigo→purple→teal gradient background with a
+  white feather glyph. Visible against both light and dark browser chrome.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 40 40"
+  fill="none"
+>
+  <defs>
+    <linearGradient id="plumage-icon-bg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366f1" />
+      <stop offset="0.5" stop-color="#a855f7" />
+      <stop offset="1" stop-color="#2dd4bf" />
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="9" fill="url(#plumage-icon-bg)" />
+  <path
+    d="M20 8c-5 3-8 8-8 13 0 3.6 2.1 6.4 5 7.9.7-4.3 2.9-8.6 7.1-12.9-1.4 4.3-3.6 8.6-4.3 12.9 2.9-.7 5.8-2.9 7.2-6.5 1.4-3.6.7-8.6-1.4-11.5C24 8.7 22 7.3 20 8z"
+    fill="#FFFFFF"
+    fill-opacity="0.95"
+  />
+  <path
+    d="M16 25c.7-2.1 2.1-4.3 4.3-6.4-.7 2.9-1.4 5.7-.7 8.6-1.4-.7-2.9-1.4-3.6-2.2z"
+    fill="#FFFFFF"
+    fill-opacity="0.55"
+  />
+</svg>

@@ -1,0 +1,2089 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flock — Weave + Plumage for SurveySparrow demos</title>
+    <meta
+      name="description"
+      content="Flock pairs Weave (survey builder) with Plumage (response generator) for end-to-end SurveySparrow demos. Built for SEs, Implementation, and CSMs."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" href="/icon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,400&family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&family=Instrument+Serif&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* ========================================================================
+         CSS variables — pulled from Plumage's globals.css with the brand-purple
+         tweak (deck content leans into the logo's purple, not the product's
+         in-app indigo, since this is brand/marketing content).
+         ======================================================================== */
+      :root[data-theme="dark"] {
+        --bg: 240 6% 6%;
+        --bg-elev: 240 6% 9%;
+        --fg: 240 5% 95%;
+        --muted: 240 5% 60%;
+        --border: 240 5% 16%;
+        --card: 240 6% 8%;
+        --card-border: 240 5% 14%;
+
+        --brand-1: #c084fc; /* lavender */
+        --brand-2: #8b5cf6; /* core purple */
+        --brand-3: #5b21b6; /* deep purple */
+        --brand-deep: #2e1065;
+        --ss-teal: #4a9ca6;
+
+        --accent: var(--brand-2);
+        --accent-soft: rgba(139, 92, 246, 0.15);
+        --accent-strong: #a78bfa;
+
+        --good: #34d399;
+        --warn: #fbbf24;
+        --bad: #f87171;
+      }
+      :root[data-theme="light"] {
+        --bg: 30 12% 96%;
+        --bg-elev: 0 0% 100%;
+        --fg: 240 8% 14%;
+        --muted: 240 6% 40%;
+        --border: 240 6% 86%;
+        --card: 0 0% 100%;
+        --card-border: 240 6% 88%;
+
+        --brand-1: #a855f7;
+        --brand-2: #7c3aed;
+        --brand-3: #5b21b6;
+        --brand-deep: #2e1065;
+        --ss-teal: #3a8088;
+
+        --accent: var(--brand-2);
+        --accent-soft: rgba(124, 58, 237, 0.12);
+        --accent-strong: #6d28d9;
+
+        --good: #059669;
+        --warn: #d97706;
+        --bad: #dc2626;
+      }
+
+      /* ========================================================================
+         Reset + base
+         ======================================================================== */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+        background: hsl(var(--bg));
+        color: hsl(var(--fg));
+      }
+      body {
+        font-family: "Geist", system-ui, -apple-system, sans-serif;
+        font-weight: 400;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        background: hsl(var(--bg));
+        color: hsl(var(--fg));
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+      img,
+      svg,
+      video {
+        display: block;
+        max-width: 100%;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      ::selection {
+        background: var(--accent);
+        color: white;
+      }
+
+      /* ========================================================================
+         Layout primitives
+         ======================================================================== */
+      .container {
+        width: 100%;
+        max-width: 1200px;
+        margin-inline: auto;
+        padding-inline: clamp(20px, 4vw, 48px);
+      }
+      .section {
+        padding-block: clamp(80px, 12vw, 160px);
+        position: relative;
+      }
+      .section--hero {
+        padding-block: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+
+      /* ========================================================================
+         Top bar (fixed)
+         ======================================================================== */
+      .top-bar {
+        position: fixed;
+        inset: 14px 0 auto 0;
+        z-index: 50;
+        padding: 0 clamp(16px, 3vw, 32px);
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+      }
+      /* Glass capsule that floats below the top edge. Carries the
+         logo on the left, theme toggle on the right. Backdrop blur +
+         subtle purple-tinted shadow ties it to the page aesthetic
+         without competing for attention. */
+      .top-bar__inner {
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        width: 100%;
+        max-width: 720px;
+        padding: 8px 14px 8px 16px;
+        border-radius: 999px;
+        background: hsl(var(--bg-elev) / 0.55);
+        border: 1px solid hsl(var(--card-border) / 0.7);
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
+        box-shadow:
+          inset 0 1px 0 hsl(var(--fg) / 0.06),
+          0 1px 2px hsl(0 0% 0% / 0.2),
+          0 16px 40px -20px hsl(var(--brand-3) / 0.35);
+        transition: background 200ms ease, border-color 200ms ease;
+      }
+      :root[data-theme="light"] .top-bar__inner {
+        background: hsl(var(--bg) / 0.7);
+        box-shadow:
+          inset 0 1px 0 hsl(0 0% 100% / 0.6),
+          0 1px 2px hsl(var(--brand-3) / 0.08),
+          0 18px 40px -22px hsl(var(--brand-3) / 0.22);
+      }
+      .feather-mark {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 600;
+        font-size: 15px;
+        letter-spacing: -0.01em;
+        transition: transform 200ms ease;
+      }
+      .feather-mark:hover {
+        transform: translateY(-1px);
+      }
+      .feather-mark img {
+        height: 36px;
+        width: 36px;
+        border-radius: 9px;
+      }
+      .theme-toggle {
+        appearance: none;
+        border: 1px solid hsl(var(--border));
+        background: hsl(var(--bg-elev) / 0.7);
+        color: hsl(var(--fg));
+        width: 36px;
+        height: 36px;
+        border-radius: 9px;
+        cursor: pointer;
+        backdrop-filter: blur(12px);
+        display: grid;
+        place-items: center;
+        transition: border-color 200ms ease, background 200ms ease;
+      }
+      .theme-toggle:hover {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .theme-toggle svg {
+        width: 16px;
+        height: 16px;
+      }
+      .theme-toggle .icon-sun {
+        display: none;
+      }
+      :root[data-theme="light"] .theme-toggle .icon-sun {
+        display: block;
+      }
+      :root[data-theme="light"] .theme-toggle .icon-moon {
+        display: none;
+      }
+
+      /* ========================================================================
+         Typography
+         ======================================================================== */
+      .eyebrow {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--accent-strong);
+        margin-bottom: 16px;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: "Geist", system-ui, sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        line-height: 1.05;
+        margin: 0 0 16px 0;
+      }
+      h1 {
+        font-size: clamp(48px, 8vw, 104px);
+      }
+      h2 {
+        font-size: clamp(36px, 5.5vw, 64px);
+      }
+      h3 {
+        font-size: clamp(22px, 2.2vw, 30px);
+        letter-spacing: -0.02em;
+      }
+      .serif {
+        font-family: "Fraunces", "Instrument Serif", "Geist", serif;
+        font-weight: 400;
+        letter-spacing: -0.012em;
+        font-style: italic;
+        /* Slightly looser optical setting via font-variation-settings so
+           Fraunces renders with its display optical-size + a hint of the
+           SOFT axis for warmth. Falls back gracefully on Instrument Serif. */
+        font-variation-settings: "opsz" 96, "SOFT" 50;
+      }
+      .mono {
+        font-family: "Geist Mono", ui-monospace, monospace;
+      }
+      p.lead {
+        font-size: clamp(18px, 1.5vw, 22px);
+        color: hsl(var(--muted));
+        max-width: 60ch;
+        line-height: 1.55;
+      }
+      p.note {
+        color: hsl(var(--muted));
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      .gradient-text {
+        background: linear-gradient(
+          135deg,
+          var(--brand-1) 0%,
+          var(--brand-2) 50%,
+          var(--ss-teal) 100%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      /* ========================================================================
+         Cards
+         ======================================================================== */
+      .card {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 16px;
+        padding: 28px;
+        transition: border-color 250ms ease, transform 250ms ease,
+          box-shadow 250ms ease;
+      }
+      .card--organic {
+        border-radius: 24px 6px 24px 6px;
+      }
+      .card--organic-mirror {
+        border-radius: 6px 24px 6px 24px;
+      }
+      .card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+      }
+
+      /* ========================================================================
+         Buttons / pills
+         ======================================================================== */
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border: 1px solid hsl(var(--border));
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 500;
+        color: hsl(var(--muted));
+        background: hsl(var(--bg-elev) / 0.6);
+      }
+      .pill--accent {
+        color: var(--accent-strong);
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .pill--good {
+        color: var(--good);
+        border-color: color-mix(in srgb, var(--good) 40%, transparent);
+        background: color-mix(in srgb, var(--good) 10%, transparent);
+      }
+      .pill--warn {
+        color: var(--warn);
+        border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+        background: color-mix(in srgb, var(--warn) 10%, transparent);
+      }
+      .pill--bad {
+        color: var(--bad);
+        border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+        background: color-mix(in srgb, var(--bad) 10%, transparent);
+      }
+
+      /* ========================================================================
+         Scroll-triggered animations
+         ======================================================================== */
+      .reveal {
+        opacity: 0;
+        transform: translateY(24px);
+        transition: opacity 800ms cubic-bezier(0.16, 1, 0.3, 1),
+          transform 800ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .reveal.in-view {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .reveal-stagger > * {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+          transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .reveal-stagger.in-view > *:nth-child(1) {
+        transition-delay: 0ms;
+      }
+      .reveal-stagger.in-view > *:nth-child(2) {
+        transition-delay: 90ms;
+      }
+      .reveal-stagger.in-view > *:nth-child(3) {
+        transition-delay: 180ms;
+      }
+      .reveal-stagger.in-view > *:nth-child(4) {
+        transition-delay: 270ms;
+      }
+      .reveal-stagger.in-view > *:nth-child(5) {
+        transition-delay: 360ms;
+      }
+      .reveal-stagger.in-view > *:nth-child(6) {
+        transition-delay: 450ms;
+      }
+      .reveal-stagger.in-view > * {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .reveal,
+        .reveal-stagger > * {
+          opacity: 1 !important;
+          transform: none !important;
+          transition: none !important;
+        }
+      }
+
+      /* ========================================================================
+         SECTION 1 — Hero
+         ======================================================================== */
+      .hero {
+        position: relative;
+        overflow: hidden;
+      }
+      .hero__inner {
+        position: relative;
+        z-index: 2;
+        text-align: center;
+        padding-top: 60px;
+      }
+      .hero__title {
+        /* Stacked two-line composition: gradient wordmark on top, italic
+           serif tagline beneath. Both centred — no more lopsided one-liner. */
+        font-size: clamp(72px, 13vw, 184px);
+        line-height: 0.92;
+        font-weight: 800;
+        letter-spacing: -0.045em;
+        margin-bottom: 28px;
+      }
+      .hero__title .gradient-text {
+        display: block;
+      }
+      .hero__title .serif {
+        display: block;
+        font-size: 0.46em;
+        line-height: 1.05;
+        margin-top: 14px;
+        padding-left: 0;
+        color: hsl(var(--fg));
+        opacity: 0.92;
+      }
+      .hero__sub {
+        font-size: clamp(19px, 1.6vw, 24px);
+        color: hsl(var(--muted));
+        max-width: 46ch;
+        margin: 0 auto;
+        line-height: 1.45;
+      }
+      .hero__sub strong {
+        font-weight: 600;
+        color: hsl(var(--fg));
+      }
+      .hero__chip {
+        margin-bottom: 28px;
+      }
+
+      /* Gradient mesh background */
+      .mesh {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .mesh__blob {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.55;
+        animation: meshDrift 22s ease-in-out infinite;
+      }
+      :root[data-theme="light"] .mesh__blob {
+        opacity: 0.35;
+      }
+      .mesh__blob--a {
+        background: radial-gradient(circle, var(--brand-1), transparent 60%);
+        width: 520px;
+        height: 520px;
+        left: -120px;
+        top: -80px;
+      }
+      .mesh__blob--b {
+        background: radial-gradient(circle, var(--brand-2), transparent 60%);
+        width: 480px;
+        height: 480px;
+        right: -80px;
+        top: 20%;
+        animation-delay: -7s;
+      }
+      .mesh__blob--c {
+        background: radial-gradient(circle, var(--ss-teal), transparent 60%);
+        width: 420px;
+        height: 420px;
+        left: 30%;
+        bottom: -120px;
+        animation-delay: -14s;
+      }
+      @keyframes meshDrift {
+        0%,
+        100% {
+          transform: translate(0, 0) scale(1);
+        }
+        33% {
+          transform: translate(40px, -30px) scale(1.08);
+        }
+        66% {
+          transform: translate(-30px, 40px) scale(0.96);
+        }
+      }
+
+      /* Floating feather particles */
+      .feathers {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+      }
+      .feather-particle {
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        opacity: 0.6;
+        animation: float 14s linear infinite;
+        filter: drop-shadow(0 0 14px var(--brand-2));
+      }
+      :root[data-theme="light"] .feather-particle {
+        opacity: 0.45;
+        filter: drop-shadow(0 0 8px var(--brand-2));
+      }
+      @keyframes float {
+        0% {
+          transform: translateY(110vh) rotate(0deg);
+          opacity: 0;
+        }
+        10% {
+          opacity: 0.6;
+        }
+        90% {
+          opacity: 0.5;
+        }
+        100% {
+          transform: translateY(-20vh) rotate(360deg);
+          opacity: 0;
+        }
+      }
+
+      /* Scroll cue */
+      .scroll-cue {
+        position: absolute;
+        bottom: 36px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        color: hsl(var(--muted));
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        opacity: 0.8;
+      }
+      .scroll-cue__dot {
+        width: 2px;
+        height: 28px;
+        background: linear-gradient(
+          to bottom,
+          transparent,
+          hsl(var(--muted)),
+          transparent
+        );
+        animation: scrollPulse 2.2s ease-in-out infinite;
+      }
+      @keyframes scrollPulse {
+        0%,
+        100% {
+          opacity: 0.3;
+          transform: translateY(0);
+        }
+        50% {
+          opacity: 1;
+          transform: translateY(6px);
+        }
+      }
+
+      /* ========================================================================
+         SECTION 2 — Problem (empty vs populated)
+         ======================================================================== */
+      .problem__statement {
+        font-size: clamp(40px, 6vw, 80px);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1.05;
+        max-width: 18ch;
+        /* Tightened headline → subtitle gap. The 64px previous value felt
+           disconnected; 20px reads as a single statement-then-explanation. */
+        margin: 0 0 20px 0;
+      }
+      .problem__statement strong {
+        background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        font-weight: 800;
+      }
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 28px;
+      }
+      @media (max-width: 880px) {
+        .compare {
+          grid-template-columns: 1fr;
+        }
+      }
+      .mock {
+        position: relative;
+        border-radius: 18px;
+        border: 1px solid hsl(var(--card-border));
+        background: hsl(var(--card));
+        padding: 24px;
+        min-height: 320px;
+        overflow: hidden;
+      }
+      .mock--empty {
+        opacity: 0.55;
+        filter: saturate(0.4);
+      }
+      .mock__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 13px;
+        color: hsl(var(--muted));
+        margin-bottom: 18px;
+      }
+      .mock__title {
+        font-weight: 600;
+        color: hsl(var(--fg));
+      }
+      .mock__stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 22px;
+      }
+      .mock__stat {
+        background: hsl(var(--bg) / 0.6);
+        border: 1px solid hsl(var(--border));
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .mock__stat .v {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: "Geist Mono", monospace;
+        margin-top: 2px;
+      }
+      .mock__stat .k {
+        font-size: 10px;
+        color: hsl(var(--muted));
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      .mock__bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        height: 120px;
+      }
+      .mock__bars .bar {
+        flex: 1;
+        border-radius: 4px 4px 0 0;
+        background: linear-gradient(
+          to top,
+          var(--brand-3),
+          var(--brand-1)
+        );
+        animation: barGrow 1.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+      }
+      .mock--empty .mock__bars .bar {
+        background: hsl(var(--border));
+      }
+      .mock--empty .mock__stat .v {
+        color: hsl(var(--muted));
+      }
+      .mock__empty-overlay {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(
+          180deg,
+          transparent,
+          hsl(var(--card) / 0.7)
+        );
+        font-size: 14px;
+        color: hsl(var(--muted));
+        font-style: italic;
+      }
+      @keyframes barGrow {
+        from {
+          height: 0;
+        }
+      }
+
+      /* ========================================================================
+         SECTION 3 — Trio
+         ======================================================================== */
+      .trio {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+        position: relative;
+      }
+      @media (max-width: 920px) {
+        .trio {
+          grid-template-columns: 1fr;
+        }
+      }
+      .trio__line {
+        position: absolute;
+        top: 50%;
+        left: 8%;
+        right: 8%;
+        height: 2px;
+        background-image: linear-gradient(
+          90deg,
+          var(--accent) 50%,
+          transparent 50%
+        );
+        background-size: 16px 2px;
+        z-index: 0;
+        opacity: 0.4;
+      }
+      @media (max-width: 920px) {
+        .trio__line {
+          display: none;
+        }
+      }
+      .trio__card {
+        position: relative;
+        z-index: 1;
+        display: block;
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 18px;
+        padding: 32px 26px;
+        color: inherit;
+        text-decoration: none;
+        transition: border-color 250ms ease, transform 250ms ease;
+      }
+      a.trio__card::after {
+        content: "↗";
+        position: absolute;
+        bottom: 20px;
+        right: 22px;
+        font-size: 14px;
+        color: hsl(var(--muted));
+        transition: color 200ms ease, transform 200ms ease;
+      }
+      a.trio__card:hover::after {
+        color: var(--accent-strong);
+        transform: translate(2px, -2px);
+      }
+      .trio__card:hover {
+        border-color: var(--accent);
+        transform: translateY(-3px);
+      }
+      .trio__num {
+        position: absolute;
+        top: 18px;
+        right: 22px;
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        color: hsl(var(--muted));
+      }
+      .trio__icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: var(--accent-soft);
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        margin-bottom: 22px;
+        color: var(--accent-strong);
+      }
+      .trio__icon img,
+      .trio__icon svg {
+        /* max-* + object-contain so logos of any aspect ratio (square
+           Plumage, wider Weave, vertical SS) all sit inside the 56px
+           tile without distortion. Was forcing 30×30 which squished
+           non-square SVGs. */
+        max-width: 34px;
+        max-height: 34px;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+      }
+      .trio__card h3 {
+        margin-bottom: 10px;
+      }
+      .trio__card p {
+        color: hsl(var(--muted));
+        font-size: 15px;
+        margin: 0;
+      }
+      .trio__card--sg .trio__icon {
+        background: color-mix(in srgb, var(--brand-1) 15%, transparent);
+        border-color: color-mix(in srgb, var(--brand-1) 50%, transparent);
+      }
+      .trio__card--plumage .trio__icon {
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--brand-1) 25%, transparent),
+          color-mix(in srgb, var(--brand-3) 25%, transparent)
+        );
+        border-color: var(--brand-2);
+      }
+      .trio__card--ss .trio__icon {
+        background: color-mix(in srgb, var(--ss-teal) 18%, transparent);
+        border-color: color-mix(in srgb, var(--ss-teal) 60%, transparent);
+      }
+
+      /* ========================================================================
+         SECTION 4 — What Plumage does
+         ======================================================================== */
+      .does-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+      }
+      @media (max-width: 760px) {
+        .does-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .does-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 20px;
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 16px;
+        padding: 24px;
+        transition: border-color 250ms ease;
+      }
+      .does-row:hover {
+        border-color: var(--accent);
+      }
+      .does-row__icon {
+        flex-shrink: 0;
+        width: 44px;
+        height: 44px;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+      .does-row__icon svg {
+        width: 22px;
+        height: 22px;
+      }
+      .does-row h4 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 4px 0;
+        letter-spacing: -0.01em;
+      }
+      .does-row p {
+        margin: 0;
+        font-size: 14px;
+        color: hsl(var(--muted));
+        line-height: 1.55;
+      }
+
+      /* ========================================================================
+         SECTION 5 — Audiences (SE / Implementation / CSM)
+         ======================================================================== */
+      .audiences {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+      }
+      @media (max-width: 1000px) {
+        .audiences {
+          grid-template-columns: 1fr;
+        }
+      }
+      .audience {
+        padding: 32px;
+        border-radius: 20px;
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        position: relative;
+        overflow: hidden;
+        transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+          border-color 250ms ease;
+      }
+      .audience::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          135deg,
+          var(--audience-accent, var(--brand-2)) 0%,
+          transparent 50%
+        );
+        opacity: 0.06;
+        pointer-events: none;
+      }
+      .audience:hover {
+        transform: translateY(-4px);
+        border-color: var(--audience-accent, var(--accent));
+      }
+      .audience__role {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: color-mix(
+          in srgb,
+          var(--audience-accent, var(--accent)) 12%,
+          transparent
+        );
+        color: var(--audience-accent, var(--accent-strong));
+        border: 1px solid
+          color-mix(in srgb, var(--audience-accent, var(--accent)) 30%, transparent);
+        margin-bottom: 22px;
+      }
+      .audience h3 {
+        margin-bottom: 14px;
+      }
+      .audience p {
+        color: hsl(var(--muted));
+        font-size: 15px;
+        line-height: 1.6;
+        margin: 0;
+      }
+      .audience--se {
+        --audience-accent: var(--brand-2);
+      }
+      .audience--impl {
+        --audience-accent: var(--ss-teal);
+      }
+      .audience--csm {
+        --audience-accent: #f59e0b;
+      }
+
+      /* ========================================================================
+         SECTION 6 — LLM matrix
+         ======================================================================== */
+      .llm-cols {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+      }
+      @media (max-width: 1000px) {
+        .llm-cols {
+          grid-template-columns: 1fr;
+        }
+      }
+      .llm-col {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 20px;
+        padding: 28px;
+        position: relative;
+        overflow: hidden;
+      }
+      .llm-col::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: var(--col-accent);
+      }
+      .llm-col--fast {
+        --col-accent: var(--good);
+      }
+      .llm-col--balanced {
+        --col-accent: var(--warn);
+      }
+      .llm-col--premium {
+        --col-accent: var(--brand-2);
+      }
+      .llm-col__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .llm-col__title {
+        font-size: 14px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--col-accent);
+      }
+      .llm-col__hint {
+        font-size: 13px;
+        color: hsl(var(--muted));
+        margin-bottom: 24px;
+        line-height: 1.5;
+      }
+      .llm-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px;
+        border-radius: 12px;
+        border: 1px solid hsl(var(--border));
+        margin-bottom: 8px;
+        background: hsl(var(--bg) / 0.4);
+        transition: border-color 200ms ease;
+      }
+      .llm-row:hover {
+        border-color: var(--col-accent);
+      }
+      .llm-row__icon {
+        width: 24px;
+        height: 24px;
+        background-color: hsl(var(--fg));
+        flex-shrink: 0;
+      }
+      .llm-row__name {
+        font-size: 13px;
+        font-weight: 500;
+        flex: 1;
+      }
+      .llm-row__name small {
+        display: block;
+        color: hsl(var(--muted));
+        font-weight: 400;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+
+      .llm-takeaway {
+        margin-top: 40px;
+        padding: 24px 28px;
+        background: var(--accent-soft);
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        border-radius: 16px;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      .llm-takeaway strong {
+        color: var(--accent-strong);
+      }
+
+      /* ========================================================================
+         SECTION 7 — API tier reality
+         ======================================================================== */
+      .tier {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 48px;
+        align-items: center;
+      }
+      @media (max-width: 980px) {
+        .tier {
+          grid-template-columns: 1fr;
+        }
+      }
+      .tier__ladder {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .tier__step {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        position: relative;
+      }
+      .tier__step[data-rank="0"] {
+        margin-left: 0;
+      }
+      .tier__step[data-rank="1"] {
+        margin-left: 24px;
+      }
+      .tier__step[data-rank="2"] {
+        margin-left: 48px;
+      }
+      .tier__step[data-rank="3"] {
+        margin-left: 72px;
+      }
+      .tier__step[data-rank="4"] {
+        margin-left: 96px;
+      }
+      .tier__step--bad {
+        border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+      }
+      .tier__step--ok {
+        border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+      }
+      .tier__step--good {
+        border-color: color-mix(in srgb, var(--good) 60%, transparent);
+        background: color-mix(in srgb, var(--good) 6%, hsl(var(--card)));
+      }
+      .tier__rank {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        font-family: "Geist Mono", monospace;
+        font-size: 12px;
+        font-weight: 600;
+        display: grid;
+        place-items: center;
+        background: hsl(var(--bg));
+        border: 1px solid hsl(var(--border));
+        flex-shrink: 0;
+      }
+      .tier__name {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .tier__name small {
+        display: block;
+        font-size: 12px;
+        color: hsl(var(--muted));
+        font-weight: 400;
+        margin-top: 2px;
+      }
+      .tier__badge {
+        margin-left: auto;
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        color: hsl(var(--muted));
+      }
+
+      /* Retry mini-flow */
+      .retry-flow {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 18px;
+        padding: 28px;
+      }
+      .retry-flow h4 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: hsl(var(--muted));
+        margin: 0 0 20px 0;
+        font-weight: 600;
+      }
+      .retry-flow__line {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .retry-step {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid hsl(var(--border));
+        background: hsl(var(--bg) / 0.5);
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      .in-view .retry-step {
+        animation: stepIn 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      .in-view .retry-step:nth-child(1) { animation-delay: 0.3s; }
+      .in-view .retry-step:nth-child(2) { animation-delay: 1.1s; }
+      .in-view .retry-step:nth-child(3) { animation-delay: 2.0s; }
+      .in-view .retry-step:nth-child(4) { animation-delay: 2.9s; }
+      .in-view .retry-step:nth-child(5) { animation-delay: 3.7s; }
+      @keyframes stepIn {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .retry-step__glyph {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-family: "Geist Mono", monospace;
+      }
+      .retry-step--req .retry-step__glyph {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+      .retry-step--429 .retry-step__glyph {
+        background: color-mix(in srgb, var(--bad) 15%, transparent);
+        color: var(--bad);
+      }
+      .retry-step--wait .retry-step__glyph {
+        background: color-mix(in srgb, var(--warn) 15%, transparent);
+        color: var(--warn);
+      }
+      .retry-step--ok .retry-step__glyph {
+        background: color-mix(in srgb, var(--good) 15%, transparent);
+        color: var(--good);
+      }
+      .retry-step__text {
+        font-size: 13px;
+        font-family: "Geist Mono", monospace;
+      }
+      .retry-step__time {
+        margin-left: auto;
+        font-size: 11px;
+        color: hsl(var(--muted));
+      }
+
+      /* ========================================================================
+         SECTION 8 — 5-step flow
+         ======================================================================== */
+      .steps {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 20px;
+      }
+      @media (max-width: 1100px) {
+        .steps {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 600px) {
+        .steps {
+          grid-template-columns: 1fr;
+        }
+      }
+      .step {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 16px;
+        padding: 24px 20px;
+        transition: border-color 250ms ease, transform 250ms ease;
+      }
+      .step:hover {
+        border-color: var(--accent);
+        transform: translateY(-3px);
+      }
+      .step__num {
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        color: var(--accent-strong);
+        margin-bottom: 18px;
+      }
+      .step__icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 9px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        display: grid;
+        place-items: center;
+        margin-bottom: 14px;
+      }
+      .step__icon svg {
+        width: 20px;
+        height: 20px;
+      }
+      .step h4 {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0 0 6px 0;
+        letter-spacing: -0.01em;
+      }
+      .step p {
+        font-size: 13px;
+        color: hsl(var(--muted));
+        margin: 0;
+        line-height: 1.5;
+      }
+
+      /* ========================================================================
+         SECTION 9 — Pro tips
+         ======================================================================== */
+      .tips {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      @media (max-width: 920px) {
+        .tips {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 560px) {
+        .tips {
+          grid-template-columns: 1fr;
+        }
+      }
+      .tip {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 14px;
+        padding: 22px;
+        transition: border-color 250ms ease, transform 250ms ease;
+      }
+      .tip:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+      }
+      .tip__emoji {
+        font-size: 22px;
+        margin-bottom: 12px;
+      }
+      .tip p {
+        font-size: 14px;
+        line-height: 1.55;
+        margin: 0;
+        color: hsl(var(--fg));
+      }
+      .tip p strong {
+        color: var(--accent-strong);
+        font-weight: 600;
+      }
+
+      /* ========================================================================
+         Footer
+         ======================================================================== */
+      .footer {
+        padding-block: 64px;
+        border-top: 1px solid hsl(var(--card-border));
+      }
+      .footer__inner {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 32px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .footer__links {
+        display: flex;
+        gap: 28px;
+        font-size: 14px;
+      }
+      .footer__links a {
+        color: hsl(var(--muted));
+        transition: color 160ms ease;
+      }
+      .footer__links a:hover {
+        color: var(--accent-strong);
+      }
+      .footer__mark {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: hsl(var(--muted));
+      }
+      .footer__mark img {
+        height: 28px;
+        width: 28px;
+        border-radius: 7px;
+        opacity: 0.7;
+      }
+
+      /* ========================================================================
+         Section dividers / eyebrows
+         ======================================================================== */
+      .section__intro {
+        max-width: 720px;
+        margin-bottom: 56px;
+      }
+      .section__intro p.lead {
+        margin: 0;
+      }
+
+      /* Hero badge */
+      .hero-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: hsl(var(--bg-elev) / 0.6);
+        border: 1px solid hsl(var(--card-border));
+        font-size: 12px;
+        font-weight: 500;
+        color: hsl(var(--muted));
+        backdrop-filter: blur(12px);
+      }
+      .hero-badge::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--good);
+        box-shadow: 0 0 12px var(--good);
+        animation: pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ──────────────────────────────────────────────────────────────────────
+         Floating glass nav — Flock mark + theme toggle inside a centered
+         glass capsule. Sits 14px from the top so it visually breathes vs
+         the page edge.
+         ────────────────────────────────────────────────────────────────────── -->
+    <header class="top-bar">
+      <div class="top-bar__inner">
+        <a class="feather-mark" href="#hero">
+          <img src="/brand/flock-logo.svg" alt="Flock" />
+          <span>Flock</span>
+        </a>
+        <button
+          class="theme-toggle"
+          type="button"
+          aria-label="Toggle theme"
+          title="Toggle theme"
+          onclick="toggleTheme()"
+        >
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 1 — Hero
+         ────────────────────────────────────────────────────────────────────── -->
+    <section id="hero" class="section section--hero hero">
+      <div class="mesh" aria-hidden="true">
+        <div class="mesh__blob mesh__blob--a"></div>
+        <div class="mesh__blob mesh__blob--b"></div>
+        <div class="mesh__blob mesh__blob--c"></div>
+      </div>
+      <div class="feathers" aria-hidden="true" id="featherField"></div>
+
+      <div class="container hero__inner">
+        <div class="hero-badge reveal">Internal · SurveySparrow GTM</div>
+        <h1 class="hero__title reveal">
+          <span class="gradient-text">Flock</span>
+          <span class="serif">tools for the team.</span>
+        </h1>
+        <p class="hero__sub reveal">
+          Built for the SurveySparrow GTM team. <strong>Weave</strong>
+          drafts the survey, <strong>Plumage</strong> fills it with
+          persona-driven AI responses — so the hours that used to
+          disappear into demo prep go back to solving real customer
+          problems.
+        </p>
+      </div>
+
+      <div class="scroll-cue" aria-hidden="true">
+        <span>Scroll</span>
+        <span class="scroll-cue__dot"></span>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 2 — Problem (empty vs populated)
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">The problem</div>
+          <h2 class="problem__statement">
+            <strong>Generic demos</strong> fall flat.
+          </h2>
+          <p class="lead">
+            A tailored, populated dashboard does half the selling — it helps
+            the prospect picture themselves in the product before you've
+            even finished the pitch.
+          </p>
+        </div>
+
+        <div class="compare reveal">
+          <!-- Empty / sad dashboard mock -->
+          <div class="mock mock--empty">
+            <div class="mock__header">
+              <span class="mock__title">Customer NPS · Q3</span>
+              <span>—</span>
+            </div>
+            <div class="mock__stats">
+              <div class="mock__stat"><div class="k">Responses</div><div class="v">0</div></div>
+              <div class="mock__stat"><div class="k">NPS</div><div class="v">—</div></div>
+              <div class="mock__stat"><div class="k">CSAT</div><div class="v">—</div></div>
+            </div>
+            <div class="mock__bars">
+              <div class="bar" style="height: 12%"></div>
+              <div class="bar" style="height: 8%"></div>
+              <div class="bar" style="height: 14%"></div>
+              <div class="bar" style="height: 6%"></div>
+              <div class="bar" style="height: 10%"></div>
+              <div class="bar" style="height: 4%"></div>
+              <div class="bar" style="height: 12%"></div>
+            </div>
+            <div class="mock__empty-overlay">No responses yet</div>
+          </div>
+
+          <!-- Populated / alive dashboard mock -->
+          <div class="mock">
+            <div class="mock__header">
+              <span class="mock__title">Customer NPS · Q3</span>
+              <span class="pill pill--good">live</span>
+            </div>
+            <div class="mock__stats">
+              <div class="mock__stat"><div class="k">Responses</div><div class="v">247</div></div>
+              <div class="mock__stat"><div class="k">NPS</div><div class="v">+62</div></div>
+              <div class="mock__stat"><div class="k">CSAT</div><div class="v">4.6</div></div>
+            </div>
+            <div class="mock__bars">
+              <div class="bar" style="height: 35%; animation-delay: 0.1s"></div>
+              <div class="bar" style="height: 55%; animation-delay: 0.2s"></div>
+              <div class="bar" style="height: 78%; animation-delay: 0.3s"></div>
+              <div class="bar" style="height: 92%; animation-delay: 0.4s"></div>
+              <div class="bar" style="height: 86%; animation-delay: 0.5s"></div>
+              <div class="bar" style="height: 70%; animation-delay: 0.6s"></div>
+              <div class="bar" style="height: 48%; animation-delay: 0.7s"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 3 — Trio
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">The trio</div>
+          <h2>One story, three tools.</h2>
+          <p class="lead">
+            Plumage is the middle act. Weave builds the script, Plumage
+            fills the cast, SurveySparrow shows the show.
+          </p>
+        </div>
+
+        <div class="trio reveal-stagger">
+          <div class="trio__line" aria-hidden="true"></div>
+
+          <a
+            class="trio__card trio__card--sg"
+            href="https://surveysparrow-quick-importer-by-sujith.onrender.com/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span class="trio__num">01</span>
+            <div class="trio__icon">
+              <img src="/brand/weave-logo.svg" alt="" />
+            </div>
+            <h3>Weave</h3>
+            <p>
+              Build a survey scoped to your prospect's vertical and use case.
+              Healthcare, retail, SaaS — the right questions, on demand.
+              Download it as a CSV and upload manually if you prefer; the
+              file comes out in SurveySparrow's import format.
+            </p>
+          </a>
+
+          <div class="trio__card trio__card--plumage">
+            <span class="trio__num">02</span>
+            <div class="trio__icon">
+              <img src="/brand/plumage-logo.svg" alt="" />
+            </div>
+            <h3>Plumage</h3>
+            <p>
+              Generate hundreds of persona-driven responses with realistic
+              ratings, open-text, languages, and geography. Push them in.
+            </p>
+          </div>
+
+          <div class="trio__card trio__card--ss">
+            <span class="trio__num">03</span>
+            <div class="trio__icon">
+              <img src="/brand/surveysparrow-symbol.svg" alt="" />
+            </div>
+            <h3>SurveySparrow</h3>
+            <p>
+              Dashboards, CogniVue, Journeys — visualise the story that
+              closes the deal. Walk in. Show. Win.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 4 — What Plumage does
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">What it does</div>
+          <h2>Real responses, in minutes.</h2>
+          <p class="lead">
+            Four moves, end to end — pulled survey to populated dashboard.
+          </p>
+        </div>
+
+        <div class="does-grid reveal-stagger">
+          <div class="does-row">
+            <div class="does-row__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h4>Pulls any SurveySparrow survey</h4>
+              <p>Questions, scales, choice IDs, custom variables — fetched directly via the SS API.</p>
+            </div>
+          </div>
+
+          <div class="does-row">
+            <div class="does-row__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <div>
+              <h4>Synthesizes personas</h4>
+              <p>Country, language, sentiment archetype, persona variables — all controllable, all believable.</p>
+            </div>
+          </div>
+
+          <div class="does-row">
+            <div class="does-row__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+            </div>
+            <div>
+              <h4>Generates responses per persona</h4>
+              <p>One LLM call per respondent — your choice of model — ratings and free-text in their actual voice.</p>
+            </div>
+          </div>
+
+          <div class="does-row">
+            <div class="does-row__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 2L11 13" />
+                <path d="M22 2l-7 20-4-9-9-4z" />
+              </svg>
+            </div>
+            <div>
+              <h4>Pushes back to SurveySparrow</h4>
+              <p>Confetti, a celebration chime, and your dashboard is live. CogniVue lights up. Demo's ready.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 5 — Audiences
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">Who it accelerates</div>
+          <h2>Three teams. One shared advantage.</h2>
+        </div>
+
+        <div class="audiences reveal-stagger">
+          <article class="audience audience--se">
+            <span class="audience__role">Solutions Engineers</span>
+            <h3>Walk in prepared.</h3>
+            <p>
+              Healthcare prospect tomorrow? Healthcare-themed survey,
+              healthcare personas, healthcare-flavored open-text responses —
+              ready before the meeting starts.
+            </p>
+          </article>
+
+          <article class="audience audience--impl">
+            <span class="audience__role">Implementation Team</span>
+            <h3>Show what "live" looks like.</h3>
+            <p>
+              Stand up a customer's environment with sample data so they
+              see what their dashboards will look like once real responses
+              arrive. No more "trust us."
+            </p>
+          </article>
+
+          <article class="audience audience--csm">
+            <span class="audience__role">Customer Success</span>
+            <h3>Show the next chapter.</h3>
+            <p>
+              Show renewing customers what they could be doing next.
+              Populate their NPS journey, support recovery, or EX use case
+              and walk through the expansion story visually.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 6 — LLM matrix
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">Choosing your LLM</div>
+          <h2>Speed and cost are a slider, not a switch.</h2>
+          <p class="lead">
+            Three columns. Pick by job — not by brand loyalty. Most of your
+            volume should run cheap; the answer that ends up on the
+            projector can afford to be premium.
+          </p>
+        </div>
+
+        <div class="llm-cols reveal-stagger">
+          <div class="llm-col llm-col--fast">
+            <div class="llm-col__head">
+              <span class="llm-col__title">Fast &amp; cheap</span>
+              <span class="pill pill--good">recommended</span>
+            </div>
+            <p class="llm-col__hint">Bulk runs. 95% of your responses live here.</p>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/anthropic.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/anthropic.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">Claude Haiku<small>Anthropic</small></div>
+            </div>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/openai.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/openai.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">GPT-4o-mini / 4.1-mini<small>OpenAI</small></div>
+            </div>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/google.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/google.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">Gemini Flash<small>Google</small></div>
+            </div>
+          </div>
+
+          <div class="llm-col llm-col--balanced">
+            <div class="llm-col__head">
+              <span class="llm-col__title">Balanced</span>
+              <span class="pill pill--warn">nuanced</span>
+            </div>
+            <p class="llm-col__hint">When open-text needs to actually sound like the persona.</p>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/anthropic.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/anthropic.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">Claude Sonnet<small>Anthropic</small></div>
+            </div>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/openai.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/openai.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">GPT-4o<small>OpenAI</small></div>
+            </div>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/google.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/google.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">Gemini Pro<small>Google</small></div>
+            </div>
+          </div>
+
+          <div class="llm-col llm-col--premium">
+            <div class="llm-col__head">
+              <span class="llm-col__title">Premium</span>
+              <span class="pill pill--accent">hero answers</span>
+            </div>
+            <p class="llm-col__hint">For the one open-text answer that ends up on the projector.</p>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/anthropic.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/anthropic.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">Claude Opus<small>Anthropic</small></div>
+            </div>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/openai.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/openai.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">GPT-4.1 / GPT-4 Turbo<small>OpenAI</small></div>
+            </div>
+            <div class="llm-row">
+              <span class="llm-row__icon" style="mask: url(/brand/llms/google.svg) center/contain no-repeat; -webkit-mask: url(/brand/llms/google.svg) center/contain no-repeat;"></span>
+              <div class="llm-row__name">Gemini 1.5 Pro<small>Google</small></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="llm-takeaway reveal">
+          <strong>Rule of thumb:</strong> for 100+ responses, fast &amp; cheap
+          handles the work. Reserve premium for the single open-text answer
+          you'll actually point at on screen.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 7 — API tier reality check
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">Reality check</div>
+          <h2>API tiers will throttle you.</h2>
+          <p class="lead">
+            Every provider rate-limits by account tier. Free and Tier 1 will
+            hit a wall on big runs. Plumage handles it — but it's faster if
+            you know what's coming.
+          </p>
+        </div>
+
+        <div class="tier reveal">
+          <!-- Tier ladder -->
+          <div class="tier__ladder">
+            <div class="tier__step tier__step--bad" data-rank="0">
+              <span class="tier__rank">F</span>
+              <div class="tier__name">Free <small>No spend</small></div>
+              <span class="tier__badge">very low RPM</span>
+            </div>
+            <div class="tier__step tier__step--bad" data-rank="1">
+              <span class="tier__rank">1</span>
+              <div class="tier__name">Tier 1 <small>~$5 cumulative</small></div>
+              <span class="tier__badge">low RPM</span>
+            </div>
+            <div class="tier__step tier__step--ok" data-rank="2">
+              <span class="tier__rank">2</span>
+              <div class="tier__name">Tier 2 <small>~$50 + 7 days</small></div>
+              <span class="tier__badge">workable</span>
+            </div>
+            <div class="tier__step tier__step--good" data-rank="3">
+              <span class="tier__rank">3</span>
+              <div class="tier__name">Tier 3+ <small>$100+ history</small></div>
+              <span class="tier__badge">comfortable</span>
+            </div>
+            <div class="tier__step tier__step--good" data-rank="4">
+              <span class="tier__rank">★</span>
+              <div class="tier__name">Tier 4+ <small>$1000+ over time</small></div>
+              <span class="tier__badge">unbothered</span>
+            </div>
+          </div>
+
+          <!-- Retry mini-flow -->
+          <div class="retry-flow">
+            <h4>Plumage handles it for you</h4>
+            <div class="retry-flow__line">
+              <div class="retry-step retry-step--req">
+                <span class="retry-step__glyph">→</span>
+                <span class="retry-step__text">POST /messages</span>
+                <span class="retry-step__time">0.0s</span>
+              </div>
+              <div class="retry-step retry-step--429">
+                <span class="retry-step__glyph">×</span>
+                <span class="retry-step__text">429 rate_limited</span>
+                <span class="retry-step__time">0.6s</span>
+              </div>
+              <div class="retry-step retry-step--wait">
+                <span class="retry-step__glyph">…</span>
+                <span class="retry-step__text">backoff 2.4s</span>
+                <span class="retry-step__time">3.0s</span>
+              </div>
+              <div class="retry-step retry-step--req">
+                <span class="retry-step__glyph">→</span>
+                <span class="retry-step__text">POST /messages (retry)</span>
+                <span class="retry-step__time">3.1s</span>
+              </div>
+              <div class="retry-step retry-step--ok">
+                <span class="retry-step__glyph">✓</span>
+                <span class="retry-step__text">200 ok</span>
+                <span class="retry-step__time">4.2s</span>
+              </div>
+            </div>
+            <p class="note" style="margin-top: 20px">
+              Exponential backoff is built in. You can walk away mid-run —
+              it'll catch up.
+            </p>
+          </div>
+        </div>
+
+        <div style="margin-top: 56px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center" class="reveal">
+          <span class="pill pill--accent">Pro tip · use a higher-tier key for big runs</span>
+          <span class="pill pill--accent">Or spread across providers — model picker supports both</span>
+          <span class="pill pill--accent">Hit a snag? Ping Sujith — happy to help unblock you</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 8 — 5-step flow
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">How to use it</div>
+          <h2>Connect. Pick. Configure. Generate. Ship.</h2>
+        </div>
+
+        <div class="steps reveal-stagger">
+          <div class="step">
+            <div class="step__num">01</div>
+            <div class="step__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.59 13.41a6 6 0 1 1 4-4l9 9-3 3-9-9z" />
+                <path d="M7 7h.01" />
+              </svg>
+            </div>
+            <h4>Connect</h4>
+            <p>Paste your SurveySparrow + LLM API keys. Pick a survey.</p>
+          </div>
+          <div class="step">
+            <div class="step__num">02</div>
+            <div class="step__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+            </div>
+            <h4>Pick model</h4>
+            <p>Speed vs cost trade-off, per the matrix above.</p>
+          </div>
+          <div class="step">
+            <div class="step__num">03</div>
+            <div class="step__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="9" cy="7" r="4" />
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <path d="M19 8v6M22 11h-6" />
+              </svg>
+            </div>
+            <h4>Configure</h4>
+            <p>Countries, languages, sentiment mix, themes, custom variables.</p>
+          </div>
+          <div class="step">
+            <div class="step__num">04</div>
+            <div class="step__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" />
+              </svg>
+            </div>
+            <h4>Generate &amp; review</h4>
+            <p>Watch Persona Studio fill up. Sample-check the tone.</p>
+          </div>
+          <div class="step">
+            <div class="step__num">05</div>
+            <div class="step__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 2L11 13" />
+                <path d="M22 2l-7 20-4-9-9-4z" />
+              </svg>
+            </div>
+            <h4>Download and/or Push</h4>
+            <p>Export the CSV, push straight to SurveySparrow, or both. Confetti included. Open the dashboard. Demo.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         SECTION 9 — Pro tips
+         ────────────────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="container">
+        <div class="section__intro reveal">
+          <div class="eyebrow">Pro tips</div>
+          <h2>Lessons from the field.</h2>
+        </div>
+
+        <div class="tips reveal-stagger">
+          <div class="tip">
+            <div class="tip__emoji">🧪</div>
+            <p><strong>Test small first.</strong> Generate 20–50 to sanity-check tone before you commit to 500.</p>
+          </div>
+          <div class="tip">
+            <div class="tip__emoji">🌍</div>
+            <p><strong>Match the geography.</strong> Use country filters that mirror your prospect's customer base.</p>
+          </div>
+          <div class="tip">
+            <div class="tip__emoji">⚖️</div>
+            <p><strong>Mix sentiment realistically.</strong> 70 / 20 / 10 promoter / passive / detractor beats all-glowing every time.</p>
+          </div>
+          <div class="tip">
+            <div class="tip__emoji">✉️</div>
+            <p><strong>Tie variables to personas.</strong> <span class="mono">customer_fn</span>, <span class="mono">customer_email</span> make NPS comments feel personal.</p>
+          </div>
+          <div class="tip">
+            <div class="tip__emoji">🧩</div>
+            <p><strong>Pair with Weave.</strong> End-to-end vertical demos in one afternoon.</p>
+          </div>
+          <div class="tip">
+            <div class="tip__emoji">🎧</div>
+            <p><strong>Press play and let it run.</strong> Big batches finish fastest when you stop watching.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         FOOTER
+         ────────────────────────────────────────────────────────────────────── -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer__inner">
+          <div class="footer__mark">
+            <img src="/brand/flock-logo.svg" alt="" />
+            <span>Built for the SurveySparrow GTM team.</span>
+          </div>
+          <nav class="footer__links">
+            <a href="/generate">Plumage app →</a>
+            <a href="https://surveysparrow-quick-importer-by-sujith.onrender.com/" target="_blank" rel="noreferrer">Weave ↗</a>
+            <a href="https://developers.surveysparrow.com" target="_blank" rel="noreferrer">SurveySparrow Docs</a>
+          </nav>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      // ====================================================================
+      // Theme toggle — flips data-theme on <html>, persists to localStorage.
+      // ====================================================================
+      const THEME_KEY = "plumage-deck-theme";
+      (function initTheme() {
+        try {
+          const saved = localStorage.getItem(THEME_KEY);
+          if (saved === "light" || saved === "dark") {
+            document.documentElement.setAttribute("data-theme", saved);
+          }
+        } catch (e) {}
+      })();
+      function toggleTheme() {
+        const cur = document.documentElement.getAttribute("data-theme");
+        const next = cur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+      }
+
+      // ====================================================================
+      // Scroll reveal — IntersectionObserver toggles .in-view on targets.
+      // ====================================================================
+      const io = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("in-view");
+              // Only animate once.
+              io.unobserve(entry.target);
+            }
+          });
+        },
+        { rootMargin: "0px 0px -10% 0px", threshold: 0.15 }
+      );
+      document
+        .querySelectorAll(".reveal, .reveal-stagger")
+        .forEach((el) => io.observe(el));
+
+      // ====================================================================
+      // Floating feather particles — spawn N at random horizontal positions
+      // with staggered delays so the hero feels alive.
+      // ====================================================================
+      (function spawnFeathers() {
+        const field = document.getElementById("featherField");
+        if (!field) return;
+        const SVG =
+          '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" fill="none">' +
+          '<defs><linearGradient id="fg-g" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">' +
+          '<stop stop-color="#C084FC"/><stop offset="1" stop-color="#5B21B6"/></linearGradient></defs>' +
+          '<path d="M20 4c-7 4-11 11-11 18 0 5 3 9 7 11 1-6 4-12 10-18-2 6-5 12-6 18 4-1 8-4 10-9 2-5 1-12-2-16-2-3-5-5-8-4z" fill="url(#fg-g)"/></svg>';
+        const COUNT = 14;
+        for (let i = 0; i < COUNT; i++) {
+          const f = document.createElement("div");
+          f.className = "feather-particle";
+          f.innerHTML = SVG;
+          f.style.left = Math.random() * 100 + "%";
+          f.style.animationDuration = 12 + Math.random() * 10 + "s";
+          f.style.animationDelay = -Math.random() * 20 + "s";
+          f.style.transform = "scale(" + (0.6 + Math.random() * 0.9) + ")";
+          field.appendChild(f);
+        }
+      })();
+
+    </script>
+  </body>
+</html>

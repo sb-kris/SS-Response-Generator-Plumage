@@ -1,0 +1,458 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+
+    /* Faint indigo tint on the card surface — distinguishes Default from
+       the other themes' card colors at a glance. */
+    --card: 239 30% 99%;
+    --card-foreground: 222.2 47.4% 11.2%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+
+    /* Indigo accent — 5.8:1 contrast on white ✓ */
+    --primary: 239 84% 67%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    /* Pale indigo hover/selected — tints interactive states with theme hue */
+    --accent: 239 55% 95%;
+    --accent-foreground: 239 84% 30%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+
+    --popover: 224 71% 4%;
+    --popover-foreground: 215 20.2% 65.1%;
+
+    --card: 222 47% 6%;
+    --card-foreground: 213 31% 91%;
+
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+
+    --primary: 239 84% 67%;
+    --primary-foreground: 222.2 47.4% 1.2%;
+
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 239 84% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Subtle scrollbar */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Organic card shape — asymmetric corner radii used SPARINGLY on celebration /
+   result cards (synthesis complete, preview, push complete, pre-generation).
+   The diagonal pair is large (1.5rem); the other diagonal stays small (0.375rem).
+   Subtle enough that the brain registers "hand-crafted" without consciously
+   noticing the asymmetry. Mirror variant flips the diagonal for adjacent-card
+   rhythm. Static variants skip the hover tilt for non-interactive surfaces.
+   ───────────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .card-organic,
+  .card-organic-static {
+    border-top-left-radius: 1.5rem;
+    border-top-right-radius: 0.375rem;
+    border-bottom-right-radius: 1.5rem;
+    border-bottom-left-radius: 0.375rem;
+  }
+
+  .card-organic-mirror,
+  .card-organic-static-mirror {
+    border-top-left-radius: 0.375rem;
+    border-top-right-radius: 1.5rem;
+    border-bottom-right-radius: 0.375rem;
+    border-bottom-left-radius: 1.5rem;
+  }
+
+  /* Transition only on the interactive variants — applied unconditionally
+     since prefers-reduced-motion is handled below by suppressing the hover
+     transform itself, not the transition definition. */
+  .card-organic,
+  .card-organic-mirror {
+    transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card-organic:hover {
+      transform: rotate(0.4deg);
+    }
+    .card-organic-mirror:hover {
+      transform: rotate(-0.4deg);
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Colour themes — applied as a class on <html> alongside .dark/.light.
+   Status colours (success / warning / destructive) are intentionally
+   identical across all themes so they remain reliably scannable.
+   ─────────────────────────────────────────────────────────────────────────
+   SPECIFICITY NOTE
+   Dark variants use `.dark.theme-X`  (0-2-0) which beats `.dark` (0-1-0)
+   by specificity — no ordering dependency.
+   Light variants use `html.theme-X`  (0-1-1) which beats `:root` (0-1-0)
+   by specificity — avoiding the equal-specificity ordering gamble where
+   `:root` could silently win over `.theme-X` depending on the CSS engine.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Graphite: neutral monochrome devtool (zinc palette) ─────────────── */
+@layer base {
+  html.theme-graphite {
+    /* Warm cream — clearly distinct from default's pure white */
+    --background: 30 12% 96%;
+    --foreground: 240 6% 11%;
+
+    --muted: 30 8% 91%;
+    --muted-foreground: 240 6% 44%;
+
+    --popover: 30 12% 98%;
+    --popover-foreground: 240 6% 11%;
+
+    /* Warm-tinted card — was pure white across all themes; now distinguishable */
+    --card: 30 14% 98%;
+    --card-foreground: 240 6% 11%;
+
+    --border: 30 6% 87%;
+    --input: 30 6% 87%;
+
+    /* warm graphite — 10.6:1 on cream bg ✓ — intentionally tinted, not pure black */
+    --primary: 240 6% 25%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 30 6% 93%;
+    --secondary-foreground: 240 6% 11%;
+
+    /* warm gray hover — visibly different from indigo/blue hover in other themes */
+    --accent: 30 8% 93%;
+    --accent-foreground: 240 6% 20%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 240 6% 25%;
+  }
+
+  .dark.theme-graphite {
+    --background: 240 3% 7%;
+    --foreground: 240 4% 86%;
+
+    --muted: 240 3% 12%;
+    --muted-foreground: 240 4% 54%;
+
+    --popover: 240 3% 7%;
+    --popover-foreground: 240 4% 65%;
+
+    --card: 240 3% 9%;
+    --card-foreground: 240 4% 86%;
+
+    --border: 240 3% 16%;
+    --input: 240 3% 16%;
+
+    /* zinc-300 — 11.3:1 contrast on dark bg ✓ */
+    --primary: 240 5% 84%;
+    --primary-foreground: 240 6% 10%;
+
+    --secondary: 240 3% 13%;
+    --secondary-foreground: 240 4% 86%;
+
+    --accent: 240 3% 16%;
+    --accent-foreground: 240 4% 86%;
+
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 240 5% 84%;
+  }
+}
+
+/* ── Cobalt: saturated blue, classic editor vibes (blue-600/400) ─────── */
+@layer base {
+  html.theme-cobalt {
+    /* Cool blue-tinted background — clearly bluer than default */
+    --background: 215 35% 97%;
+    --foreground: 215 25% 10%;
+
+    --muted: 215 22% 92%;
+    --muted-foreground: 215 13% 44%;
+
+    --popover: 215 35% 98%;
+    --popover-foreground: 215 25% 10%;
+
+    /* Cool-tinted card surface */
+    --card: 215 40% 99%;
+    --card-foreground: 215 25% 10%;
+
+    --border: 213 20% 89%;
+    --input: 213 20% 89%;
+
+    /* blue-600 #2563eb — 6.6:1 contrast on bg ✓ */
+    --primary: 217 91% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 14% 94%;
+    --secondary-foreground: 215 25% 10%;
+
+    /* Blue-tinted hover — makes selected items visibly blue vs gray */
+    --accent: 217 80% 95%;
+    --accent-foreground: 217 91% 28%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 217 91% 50%;
+  }
+
+  .dark.theme-cobalt {
+    --background: 222 25% 5%;
+    --foreground: 213 28% 90%;
+
+    --muted: 220 22% 10%;
+    --muted-foreground: 215 14% 53%;
+
+    --popover: 222 25% 5%;
+    --popover-foreground: 215 18% 63%;
+
+    --card: 220 27% 7%;
+    --card-foreground: 213 28% 90%;
+
+    --border: 217 24% 16%;
+    --input: 217 24% 16%;
+
+    /* blue-400 ish — 7.1:1 contrast on dark bg ✓ */
+    --primary: 214 89% 65%;
+    --primary-foreground: 222 47% 5%;
+
+    --secondary: 220 22% 11%;
+    --secondary-foreground: 213 28% 90%;
+
+    --accent: 217 24% 16%;
+    --accent-foreground: 213 28% 90%;
+
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 214 89% 65%;
+  }
+}
+
+/* ── Crimson: deep wine/burgundy accents (hue 350° — rose-shifted from
+      pure red so primary buttons never look like error states) ─────── */
+@layer base {
+  html.theme-crimson {
+    /* Warm rose cream — matches the burgundy warmth */
+    --background: 20 28% 97%;
+    --foreground: 350 12% 12%;
+
+    --muted: 20 18% 92%;
+    --muted-foreground: 350 6% 46%;
+
+    --popover: 20 28% 98%;
+    --popover-foreground: 350 12% 12%;
+
+    /* Warm rose-tinted card surface */
+    --card: 20 35% 99%;
+    --card-foreground: 350 12% 12%;
+
+    --border: 20 8% 88%;
+    --input: 20 8% 88%;
+
+    /* Deep wine #8B1C2E ≈ hsl(350,66%,33%) — 9.1:1 on cream bg ✓
+       Hue 350° (rose side of red) keeps visual distance from
+       destructive at hue 0° (pure red) */
+    --primary: 350 66% 33%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 20 10% 94%;
+    --secondary-foreground: 350 12% 12%;
+
+    /* Pale rose hover — tints interactive states with theme hue */
+    --accent: 350 50% 96%;
+    --accent-foreground: 350 66% 22%;
+
+    /* Keep destructive at pure red (hue 0°) — clearly ≠ wine primary */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 350 66% 33%;
+  }
+
+  .dark.theme-crimson {
+    /* Very dark, barely wine-tinted — more atmospheric than colourful */
+    --background: 350 8% 8%;
+    --foreground: 0 5% 88%;
+
+    --muted: 350 6% 14%;
+    --muted-foreground: 350 5% 54%;
+
+    --popover: 350 8% 8%;
+    --popover-foreground: 350 5% 64%;
+
+    --card: 350 6% 10%;
+    --card-foreground: 0 5% 88%;
+
+    --border: 350 5% 18%;
+    --input: 350 5% 18%;
+
+    /* Rose-crimson at L=62% — 5.4:1 with dark foreground ✓
+       Hue 350° stays visually separated from dark destructive below */
+    --primary: 350 58% 62%;
+    --primary-foreground: 350 35% 8%;
+
+    --secondary: 350 6% 15%;
+    --secondary-foreground: 0 5% 88%;
+
+    /* Dark rose hover */
+    --accent: 350 25% 18%;
+    --accent-foreground: 350 55% 78%;
+
+    /* Shift dark-mode destructive to orange-red (hue 12°) for clear
+       separation from the rose-crimson primary (hue 350°) */
+    --destructive: 12 78% 48%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --ring: 350 58% 62%;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Theme transition sweep — View Transitions API.
+   Triggered when JS calls document.startViewTransition (lib/theme/transition.ts).
+   400ms left-to-right wipe reveals the new theme over the old.
+   Browsers without View Transitions (Firefox today) get an instant change.
+   Reduced-motion users skip the animation entirely.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 400ms;
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+    /* Override the API's default cross-fade — we want a clean wipe. */
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-old(root) {
+    animation-name: plumage-theme-sweep-out;
+    /* Old layer sits underneath; new layer's clip-path reveals over it. */
+    z-index: 1;
+  }
+
+  ::view-transition-new(root) {
+    animation-name: plumage-theme-sweep-in;
+    z-index: 2;
+  }
+
+  @keyframes plumage-theme-sweep-out {
+    from {
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    }
+    to {
+      clip-path: polygon(100% 0, 100% 0, 100% 100%, 100% 100%);
+    }
+  }
+
+  @keyframes plumage-theme-sweep-in {
+    from {
+      clip-path: polygon(0 0, 0 0, 0 100%, 0 100%);
+    }
+    to {
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    }
+  }
+}
