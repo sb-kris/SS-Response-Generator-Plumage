@@ -104,7 +104,13 @@ export interface ApiLogFullPayload {
 // ---------------------------------------------------------------------------
 
 const SUMMARY_CAP = 500;
-const PAYLOAD_CAP = 50;
+// A single push of 500 responses = 5 batches × ~16 calls (1 submit + up
+// to 15 poll-status). That's 80 payloads from one push alone. The previous
+// cap of 50 was evicting batch-status response bodies before the user
+// could inspect them — exactly the symptom the user reported. 250 covers
+// realistic push sizes without unbounded memory growth. At ~64KB worst
+// case per entry: 250 × 64KB ≈ 16MB peak, acceptable for a Node process.
+const PAYLOAD_CAP = 250;
 const MAX_PAYLOAD_BYTES = 32 * 1024; // 32 KB per side
 const ERROR_MESSAGE_LIMIT = 500;
 

@@ -1,14 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Persona } from "@/lib/generation/persona-types";
 import { LANGUAGES_BY_CODE } from "@/lib/utils/language-geography";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  useColumnSort,
+  useSingleFilter,
+  type SortColumn,
+} from "../shared/useTableControls";
+import { FilterChips, SortHeader } from "../shared/TableControls";
 
 const INITIAL_VISIBLE = 20;
+
+// Sortable columns + accessors. Keys are typed as a union so the sort
+// state can't drift from real column ids.
+type ColKey =
+  | "index"
+  | "name"
+  | "language"
+  | "country"
+  | "sentiment"
+  | "verbosity";
+
+const COLUMNS: ReadonlyArray<SortColumn<Persona, ColKey>> = [
+  { key: "index",    accessor: (p) => p.index },
+  { key: "name",     accessor: (p) => p.name },
+  { key: "language", accessor: (p) => p.language },
+  { key: "country",  accessor: (p) => p.countryName },
+  // Promoter > Passive > Detractor — alphabetical happens to invert the
+  // intuitive order, so we map sentiment to a stable rank.
+  { key: "sentiment", accessor: (p) =>
+      p.sentimentArchetype === "promoter" ? 0 :
+      p.sentimentArchetype === "passive"  ? 1 : 2 },
+  { key: "verbosity", accessor: (p) =>
+      p.verbosity === "terse" ? 0 : p.verbosity === "medium" ? 1 : 2 },
+];
 
 interface Props {
   personas: Persona[];
@@ -18,7 +48,40 @@ export function PersonaTable({ personas }: Props) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
-  const visible = showAll ? personas : personas.slice(0, INITIAL_VISIBLE);
+  // Sort state — defaults to ascending by index (preserves natural order).
+  const { sort, toggleSort, sortRows } = useColumnSort<Persona, ColKey>(COLUMNS);
+
+  // Filters — sentiment + verbosity. Languages are typically too many
+  // to chip-row, and sortable-column already covers the "group by lang"
+  // need; if a sweep gets long enough to warrant a language dropdown,
+  // we'll add one later.
+  const sentimentFilter = useSingleFilter<"promoter" | "passive" | "detractor">();
+  const verbosityFilter = useSingleFilter<"terse" | "medium" | "verbose">();
+
+  const sentimentCounts = useMemo(() => {
+    let promoter = 0, passive = 0, detractor = 0;
+    for (const p of personas) {
+      if (p.sentimentArchetype === "promoter") promoter++;
+      else if (p.sentimentArchetype === "passive") passive++;
+      else detractor++;
+    }
+    return { promoter, passive, detractor };
+  }, [personas]);
+
+  // Apply filters first, then sort. Both are O(N); cheap on a 500-row
+  // array. Memoised on the personas reference + the filter/sort state.
+  const filteredSorted = useMemo(() => {
+    const filtered = personas.filter(
+      (p) =>
+        sentimentFilter.match(p.sentimentArchetype) &&
+        verbosityFilter.match(p.verbosity),
+    );
+    return sortRows(filtered);
+  }, [personas, sentimentFilter, verbosityFilter, sortRows]);
+
+  const visible = showAll ? filteredSorted : filteredSorted.slice(0, INITIAL_VISIBLE);
+  const total = personas.length;
+  const filteredCount = filteredSorted.length;
 
   return (
     <div className="rounded-lg border">
@@ -32,36 +95,74 @@ export function PersonaTable({ personas }: Props) {
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           View all personas
         </span>
-        <span className="text-xs text-muted-foreground">
-          {personas.length.toLocaleString()} total
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {filteredCount !== total
+            ? `${filteredCount.toLocaleString()} of ${total.toLocaleString()}`
+            : `${total.toLocaleString()} total`}
         </span>
       </button>
 
       {open && (
         <div className="border-t">
+          {/* Filter chip rows — only rendered when meaningful (>1 distinct
+              value). Keeps the surface clean for tiny runs. */}
+          {personas.length > 1 && (
+            <div className="space-y-2 border-b bg-muted/20 px-4 py-3">
+              <FilterChips
+                label="Sentiment"
+                value={sentimentFilter.value}
+                onChange={sentimentFilter.setValue}
+                options={[
+                  { value: "all",       label: "All",       count: total },
+                  { value: "promoter",  label: "Promoter",  count: sentimentCounts.promoter, tone: "success" },
+                  { value: "passive",   label: "Passive",   count: sentimentCounts.passive,  tone: "neutral" },
+                  { value: "detractor", label: "Detractor", count: sentimentCounts.detractor, tone: "danger" },
+                ]}
+              />
+              <FilterChips
+                label="Verbosity"
+                value={verbosityFilter.value}
+                onChange={verbosityFilter.setValue}
+                options={[
+                  { value: "all",     label: "All" },
+                  { value: "terse",   label: "Terse" },
+                  { value: "medium",  label: "Medium" },
+                  { value: "verbose", label: "Verbose" },
+                ]}
+              />
+            </div>
+          )}
+
           {/* Horizontally scrollable on narrow screens */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">#</th>
-                  <th className="px-3 py-2 text-left font-medium">Persona</th>
-                  <th className="px-3 py-2 text-left font-medium">Language</th>
-                  <th className="px-3 py-2 text-left font-medium">Country</th>
-                  <th className="px-3 py-2 text-left font-medium">Sentiment</th>
-                  <th className="px-3 py-2 text-left font-medium">Top concern</th>
-                  <th className="px-3 py-2 text-left font-medium">Verbosity</th>
+                  <SortHeader columnKey="index"     sort={sort} toggle={toggleSort}>#</SortHeader>
+                  <SortHeader columnKey="name"      sort={sort} toggle={toggleSort}>Persona</SortHeader>
+                  <SortHeader columnKey="language"  sort={sort} toggle={toggleSort}>Language</SortHeader>
+                  <SortHeader columnKey="country"   sort={sort} toggle={toggleSort}>Country</SortHeader>
+                  <SortHeader columnKey="sentiment" sort={sort} toggle={toggleSort}>Sentiment</SortHeader>
+                  {/* Top concern is free text — not meaningfully sortable. */}
+                  <SortHeader columnKey="name" sort={sort} toggle={toggleSort} disabled>Top concern</SortHeader>
+                  <SortHeader columnKey="verbosity" sort={sort} toggle={toggleSort}>Verbosity</SortHeader>
                 </tr>
               </thead>
               <tbody>
-                {visible.map((p) => (
-                  <PersonaRow key={p.id} persona={p} />
-                ))}
+                {visible.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      No personas match the current filters.
+                    </td>
+                  </tr>
+                ) : (
+                  visible.map((p) => <PersonaRow key={p.id} persona={p} />)
+                )}
               </tbody>
             </table>
           </div>
 
-          {!showAll && personas.length > INITIAL_VISIBLE && (
+          {!showAll && filteredCount > INITIAL_VISIBLE && (
             <div className="flex justify-center border-t bg-muted/20 p-2">
               <Button
                 variant="ghost"
@@ -69,7 +170,7 @@ export function PersonaTable({ personas }: Props) {
                 onClick={() => setShowAll(true)}
                 className="gap-1.5 text-xs"
               >
-                Show all {personas.length.toLocaleString()}
+                Show all {filteredCount.toLocaleString()}
               </Button>
             </div>
           )}

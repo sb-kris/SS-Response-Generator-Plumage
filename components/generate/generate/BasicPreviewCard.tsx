@@ -41,6 +41,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { GenerateResponsesHookState } from "./useGenerateResponses";
+import {
+  useColumnSort,
+  useSingleFilter,
+  type SortColumn,
+} from "../shared/useTableControls";
+import { FilterChips, SortHeader } from "../shared/TableControls";
 
 // State C — preview card shown after generation completes.
 //
@@ -51,6 +57,16 @@ import type { GenerateResponsesHookState } from "./useGenerateResponses";
 
 const PAGE_SIZE = 25;
 
+// Sortable column keys for the response table. Typed as a union so the
+// sort state can't drift from real column ids.
+type ResponseColKey =
+  | "index"
+  | "name"
+  | "language"
+  | "country"
+  | "sentiment"
+  | "answerCount";
+
 interface Props {
   gen: GenerateResponsesHookState;
   onPush: () => void;
@@ -60,6 +76,7 @@ export function BasicPreviewCard({ gen, onPush }: Props) {
   const responses = useResponsesStore((s) => s.responses);
   const warnings = useResponsesStore((s) => s.progress.warnings);
   const reset = useResponsesStore((s) => s.reset);
+  const pushStatus = useResponsesStore((s) => s.pushStatus);
   const personas = usePersonasStore((s) => s.personas);
   const surveys = useSurveyStore((s) => s.surveys.data);
   const selectedSurveyId = useSurveyStore((s) => s.selectedSurveyId);
@@ -84,13 +101,19 @@ export function BasicPreviewCard({ gen, onPush }: Props) {
   const allPushed = pushedCount > 0 && pushedCount === responses.length;
   const partialPushed = pushedCount > 0 && pushedCount < responses.length;
   const remainingForPush = responses.length - pushedCount;
+  const pushIsRunning = pushStatus === "running";
 
-  const pushButtonLabel = allPushed
-    ? "Pushed · view details"
-    : partialPushed
-      ? `Continue push (${remainingForPush.toLocaleString()})`
-      : "Push to SurveySparrow";
-  const PushIcon = allPushed ? CheckCircle2 : Send;
+  // When the user has navigated back to preview during a push, the button
+  // re-enters the push view (the hook is still running on the parent —
+  // returning here just makes progress visible again).
+  const pushButtonLabel = pushIsRunning
+    ? "View push progress…"
+    : allPushed
+      ? "Pushed · view details"
+      : partialPushed
+        ? `Continue push (${remainingForPush.toLocaleString()})`
+        : "Push to SurveySparrow";
+  const PushIcon = pushIsRunning ? Send : allPushed ? CheckCircle2 : Send;
 
   // Card starts expanded after generation completes so users see their results
   // immediately without an extra click. They can still collapse if they want.
@@ -187,8 +210,53 @@ export function BasicPreviewCard({ gen, onPush }: Props) {
     return responses.filter((r) => r.generatedAt <= playheadMs);
   }, [responses, timelineExpanded, syncTable, playheadMs]);
 
-  const visible = filteredResponses.slice(0, visibleCount);
-  const remaining = filteredResponses.length - visibleCount;
+  // ── Sort + filter for the response table ─────────────────────────────
+  // Column accessors look up the persona for each response (responses
+  // store only persona ID, not the full persona). personasById is
+  // already memoised above so this is O(1) per row.
+  const RESPONSE_COLUMNS: ReadonlyArray<SortColumn<GeneratedResponse, ResponseColKey>> = useMemo(
+    () => [
+      { key: "index",     accessor: (r) => (personasById.get(r.personaId)?.index ?? 0) },
+      { key: "name",      accessor: (r) => r.personaName },
+      { key: "language",  accessor: (r) => personasById.get(r.personaId)?.language ?? "" },
+      { key: "country",   accessor: (r) => personasById.get(r.personaId)?.countryName ?? "" },
+      { key: "sentiment", accessor: (r) => {
+          const s = personasById.get(r.personaId)?.sentimentArchetype;
+          return s === "promoter" ? 0 : s === "passive" ? 1 : 2;
+        } },
+      { key: "answerCount", accessor: (r) => Object.keys(r.answers).length },
+    ],
+    [personasById],
+  );
+
+  const { sort, toggleSort, sortRows } = useColumnSort<GeneratedResponse, ResponseColKey>(
+    RESPONSE_COLUMNS,
+  );
+  const sentimentFilter = useSingleFilter<"promoter" | "passive" | "detractor">();
+
+  const sentimentCounts = useMemo(() => {
+    let promoter = 0, passive = 0, detractor = 0;
+    for (const r of responses) {
+      const s = personasById.get(r.personaId)?.sentimentArchetype;
+      if (s === "promoter") promoter++;
+      else if (s === "passive") passive++;
+      else if (s === "detractor") detractor++;
+    }
+    return { promoter, passive, detractor };
+  }, [responses, personasById]);
+
+  // Filter → sort. Time-machine filter is already applied to `filteredResponses`
+  // so we layer sentiment + sort on top of that.
+  const displayedResponses = useMemo(() => {
+    const matched = filteredResponses.filter((r) => {
+      const s = personasById.get(r.personaId)?.sentimentArchetype ?? null;
+      return sentimentFilter.match(s);
+    });
+    return sortRows(matched);
+  }, [filteredResponses, personasById, sentimentFilter, sortRows]);
+
+  const visible = displayedResponses.slice(0, visibleCount);
+  const remaining = displayedResponses.length - visibleCount;
 
   return (
     <div className="space-y-4">
@@ -339,34 +407,60 @@ export function BasicPreviewCard({ gen, onPush }: Props) {
             </Alert>
           )}
 
+          {/* Filter chip row — sentiment only for now. Hidden when there
+              are no responses to filter, or when there's only one sentiment
+              category present (keeps the surface clean). */}
+          {responses.length > 1 && (
+            <FilterChips
+              label="Sentiment"
+              value={sentimentFilter.value}
+              onChange={sentimentFilter.setValue}
+              options={[
+                { value: "all",       label: "All",       count: responses.length },
+                { value: "promoter",  label: "Promoter",  count: sentimentCounts.promoter,  tone: "success" },
+                { value: "passive",   label: "Passive",   count: sentimentCounts.passive,   tone: "neutral" },
+                { value: "detractor", label: "Detractor", count: sentimentCounts.detractor, tone: "danger" },
+              ]}
+            />
+          )}
+
           {/* Response table — fixed-height scroll so large batches don't break layout */}
           <div className="rounded-lg border">
             <div className="max-h-[480px] overflow-y-auto overflow-x-auto">
               <table className="w-full min-w-[600px] text-sm">
                 <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
                   <tr className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {/* Row-expander column — not sortable. */}
                     <th className="w-8 px-3 py-2"></th>
-                    <th className="px-3 py-2 text-left font-medium">#</th>
-                    <th className="px-3 py-2 text-left font-medium">Persona</th>
-                    <th className="px-3 py-2 text-left font-medium">Lang</th>
-                    <th className="px-3 py-2 text-left font-medium">Country</th>
-                    <th className="px-3 py-2 text-left font-medium">Sentiment</th>
-                    <th className="px-3 py-2 text-left font-medium"># Answers</th>
+                    <SortHeader columnKey="index"       sort={sort} toggle={toggleSort}>#</SortHeader>
+                    <SortHeader columnKey="name"        sort={sort} toggle={toggleSort}>Persona</SortHeader>
+                    <SortHeader columnKey="language"    sort={sort} toggle={toggleSort}>Lang</SortHeader>
+                    <SortHeader columnKey="country"     sort={sort} toggle={toggleSort}>Country</SortHeader>
+                    <SortHeader columnKey="sentiment"   sort={sort} toggle={toggleSort}>Sentiment</SortHeader>
+                    <SortHeader columnKey="answerCount" sort={sort} toggle={toggleSort}># Answers</SortHeader>
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.map((r, idx) => (
-                    <ResponseRow
-                      key={r.id}
-                      index={idx + 1}
-                      response={r}
-                      persona={personasById.get(r.personaId)}
-                      expanded={expandedId === r.id}
-                      onToggle={() =>
-                        setExpandedId((cur) => (cur === r.id ? null : r.id))
-                      }
-                    />
-                  ))}
+                  {visible.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                        No responses match the current filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    visible.map((r, idx) => (
+                      <ResponseRow
+                        key={r.id}
+                        index={idx + 1}
+                        response={r}
+                        persona={personasById.get(r.personaId)}
+                        expanded={expandedId === r.id}
+                        onToggle={() =>
+                          setExpandedId((cur) => (cur === r.id ? null : r.id))
+                        }
+                      />
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

@@ -57,15 +57,25 @@ export function GenerateAndPushStep() {
   };
 
   const handleBackToPreview = () => {
-    if (pushStatus === "running") return; // can't go back while pushing
+    // PREVIOUSLY this bailed out while a push was running, trapping the
+    // user on the push card until completion. But the push hook lives
+    // on this parent — it keeps running regardless of which card the
+    // child renders. Allowing back-nav during push lets the user
+    // inspect / verify responses in the preview while the push proceeds
+    // in the background. Push results / status are NOT reset; if the
+    // push completes while the user is in preview, the success banner
+    // appears there automatically.
     setInPushView(false);
-    // Don't reset push results — the user may want to review them later.
-    // Only reset if they explicitly choose "Retry" from PushCard.
   };
 
+  // `inPushView` is the source of truth — it's set true when the user
+  // clicks Push, and false when they click Back-to-preview. We deliberately
+  // do NOT include `pushStatus === "running"` here: that would force the
+  // user back onto the push card even after they've navigated away to
+  // inspect responses. The push hook is owned by this parent and keeps
+  // running regardless of which child card is rendered.
   const showPushCard =
     inPushView ||
-    pushStatus === "running" ||
     // Skip-preview: jump straight to push after generation finishes.
     (status === "complete" && responses.length > 0 && skipPreview && pushStatus === "idle");
 

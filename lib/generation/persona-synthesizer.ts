@@ -47,7 +47,15 @@ const BATCH_SIZE = 10;
 // concurrency would be. Empirically anything higher just triggers rate
 // limits without speeding up the run noticeably.
 const PERSONA_PHASE_MAX_CONCURRENCY = 3;
+// Validation retries — how many times we'll re-prompt the LLM to fix a
+// schema violation. Keeps the cost cap predictable; defaults to 2.
 const MAX_RETRIES = 2;
+// Rate-limit retries have their OWN budget so a 429 storm doesn't burn
+// the validation retries before the model gets a fair shot at producing
+// valid output. Matches the response-generator's pattern exactly.
+const MAX_RATE_LIMIT_RETRIES = 5;
+const MIN_RATE_LIMIT_BACKOFF_MS = 1_000;
+const DEFAULT_RATE_LIMIT_BACKOFF_MS = 8_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,9 +258,19 @@ async function runBatch(
 ): Promise<BatchResult> {
   let lastError: string | undefined;
   let retryReason: string | undefined;
+  // PREVIOUSLY: a single counter increment-on-every-error treated rate-
+  // limit 429s the same as validation failures. Three 429s in a row =
+  // budget exhausted = fall back to defaults. With Anthropic's 10k
+  // output-tokens-per-minute cap, this was firing on ~6% of personas in
+  // a 500-persona run.
+  // NOW: separate budgets. Rate-limit retries get up to 5 attempts with
+  // exponential backoff (1s → 2s → 4s → 8s → 8s, ±25% jitter); validation
+  // retries get their original 2-attempt budget on top.
+  let rateLimitRetries = 0;
+  let validationAttempts = 0;
   const archetypes: SentimentArchetype[] = batch.map((p) => p.sentimentArchetype);
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  while (validationAttempts <= MAX_RETRIES) {
     if (signal?.aborted) {
       lastError = "Aborted before completion.";
       break;
@@ -279,9 +297,32 @@ async function runBatch(
       signal,
     });
 
+    // Rate-limit branch — exponential back-off, independent budget. Does
+    // NOT consume the validation-retry counter, so a 429 storm followed
+    // by a validation failure still gets the full validation budget.
+    if (!llm.ok && llm.rateLimited) {
+      if (rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) {
+        lastError = llm.error ?? `Hit rate limit ${MAX_RATE_LIMIT_RETRIES}× in a row`;
+        break;
+      }
+      const expBase = MIN_RATE_LIMIT_BACKOFF_MS * Math.pow(2, rateLimitRetries);
+      const baseMs = llm.retryAfterMs
+        ? Math.max(MIN_RATE_LIMIT_BACKOFF_MS, llm.retryAfterMs)
+        : Math.min(DEFAULT_RATE_LIMIT_BACKOFF_MS, expBase);
+      const jitterMs = Math.round(baseMs * (0.75 + Math.random() * 0.5));
+      rateLimitRetries += 1;
+      await sleepWithAbort(jitterMs, signal);
+      if (signal?.aborted) {
+        lastError = "Aborted before completion.";
+        break;
+      }
+      continue;
+    }
+
     if (!llm.ok) {
       lastError = llm.error ?? `HTTP ${llm.status}`;
       retryReason = lastError;
+      validationAttempts += 1;
       continue;
     }
 
@@ -291,17 +332,40 @@ async function runBatch(
       return {};
     }
 
-    // Invalid output — even though we have defaults, surface the issue and
-    // try once more with the error in the prompt. Tentatively merge what we
-    // got so we always have something usable if retries exhaust.
+    // Invalid output — surface the issue and try once more with the error
+    // in the prompt. Tentatively merge what we got so we always have
+    // something usable if retries exhaust.
     retryReason = summarizeValidationErrors(validation.errors);
     mergeIntoBatch(batch, validation.personas);
     lastError = retryReason;
+    validationAttempts += 1;
   }
 
   return {
     warning: lastError ? `Used defaults for some personas: ${lastError}` : undefined,
   };
+}
+
+/**
+ * Promise-based sleep that respects an AbortSignal. Cleared timer + early
+ * resolve when abort fires, so the synthesis run can cancel mid-backoff.
+ * (Local copy rather than importing from response-generator.ts to keep the
+ * two synthesizers self-contained — they predate the shared-utility split
+ * and aren't worth a refactor today.)
+ */
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function mergeIntoBatch(batch: Persona[], llmOutputs: PersonaLLMOutput[]): void {

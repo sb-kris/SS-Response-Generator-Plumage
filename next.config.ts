@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
       // working while /flock matches the new brand.
       { source: "/deck", destination: "/deck/index.html" },
       { source: "/flock", destination: "/deck/index.html" },
+      // Standalone brand guide — same family as the Flock deck but a
+      // separate, printable reference for designers/writers.
+      { source: "/brand-guide", destination: "/brand-guide.html" },
     ];
   },
 };

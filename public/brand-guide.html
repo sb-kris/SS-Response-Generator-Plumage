@@ -1,0 +1,1621 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flock — Brand Guide</title>
+    <meta
+      name="description"
+      content="Brand guide for Flock — the SurveySparrow GTM toolkit (Weave + Plumage). Logos, colors, typography, voice, and patterns."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" href="/icon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,400&family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* =====================================================================
+         Tokens — mirror Flock deck so the guide reads as part of the family.
+         ===================================================================== */
+      :root {
+        --brand-1: #c084fc;
+        --brand-2: #8b5cf6;
+        --brand-3: #5b21b6;
+        --ss-teal: #4a9ca6;
+
+        --bg: 224 30% 6%;
+        --bg-elev: 224 22% 10%;
+        --fg: 220 14% 92%;
+        --muted: 220 9% 62%;
+        --card-border: 220 14% 22%;
+
+        --good: #10b981;
+        --warn: #f59e0b;
+        --bad: #ef4444;
+      }
+      :root[data-theme="light"] {
+        --bg: 30 25% 97%;
+        --bg-elev: 0 0% 100%;
+        --fg: 224 24% 14%;
+        --muted: 220 8% 44%;
+        --card-border: 220 14% 88%;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Geist", system-ui, sans-serif;
+        background: hsl(var(--bg));
+        color: hsl(var(--fg));
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      .serif {
+        font-family: "Fraunces", "Instrument Serif", "Geist", serif;
+        font-style: italic;
+        font-weight: 400;
+        font-variation-settings: "opsz" 96, "SOFT" 50;
+      }
+      .mono {
+        font-family: "Geist Mono", ui-monospace, monospace;
+      }
+      .gradient-text {
+        background: linear-gradient(135deg, var(--brand-1), var(--brand-2), var(--ss-teal));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 0 clamp(20px, 4vw, 48px);
+      }
+
+      /* =====================================================================
+         Top bar — same glass capsule used in the Flock deck.
+         ===================================================================== */
+      .top-bar {
+        position: fixed;
+        inset: 14px 0 auto 0;
+        z-index: 50;
+        padding: 0 clamp(16px, 3vw, 32px);
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+      }
+      .top-bar__inner {
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        width: 100%;
+        max-width: 720px;
+        padding: 8px 14px 8px 16px;
+        border-radius: 999px;
+        background: hsl(var(--bg-elev) / 0.55);
+        border: 1px solid hsl(var(--card-border) / 0.7);
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
+        box-shadow:
+          inset 0 1px 0 hsl(var(--fg) / 0.06),
+          0 1px 2px hsl(0 0% 0% / 0.2),
+          0 16px 40px -20px hsl(263 80% 35% / 0.35);
+      }
+      .top-bar__mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: hsl(var(--fg));
+        text-decoration: none;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .top-bar__mark img {
+        height: 28px;
+        width: 28px;
+        object-fit: contain;
+      }
+      .top-bar__actions {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .top-bar__btn {
+        appearance: none;
+        background: transparent;
+        color: hsl(var(--muted));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 160ms ease;
+      }
+      .top-bar__btn:hover {
+        color: hsl(var(--fg));
+        border-color: hsl(var(--fg) / 0.4);
+      }
+      .top-bar__btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      .top-bar__icon-btn {
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border-radius: 999px;
+      }
+
+      /* =====================================================================
+         Sections
+         ===================================================================== */
+      section {
+        padding: clamp(64px, 8vw, 112px) 0;
+        border-top: 1px solid hsl(var(--card-border) / 0.5);
+      }
+      section:first-of-type {
+        border-top: none;
+      }
+
+      .eyebrow {
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--brand-1);
+        margin-bottom: 16px;
+      }
+      h1,
+      h2,
+      h3,
+      h4 {
+        margin: 0;
+        letter-spacing: -0.02em;
+        font-weight: 700;
+      }
+      h1 {
+        font-size: clamp(48px, 7vw, 88px);
+        line-height: 0.95;
+        letter-spacing: -0.04em;
+      }
+      h1 .serif {
+        font-size: 0.5em;
+        font-weight: 400;
+        display: block;
+        margin-top: 14px;
+        color: hsl(var(--fg) / 0.85);
+      }
+      h2 {
+        font-size: clamp(28px, 3.4vw, 40px);
+        line-height: 1.1;
+        margin-bottom: 12px;
+      }
+      h3 {
+        font-size: 20px;
+        margin-bottom: 8px;
+        letter-spacing: -0.01em;
+      }
+      h4 {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0;
+        margin-bottom: 6px;
+      }
+      .lead {
+        font-size: clamp(17px, 1.4vw, 19px);
+        color: hsl(var(--muted));
+        max-width: 56ch;
+        line-height: 1.6;
+        margin: 0 0 32px 0;
+      }
+      p {
+        margin: 0 0 16px 0;
+        color: hsl(var(--fg) / 0.92);
+      }
+      small {
+        color: hsl(var(--muted));
+        font-size: 12.5px;
+      }
+
+      /* =====================================================================
+         Hero
+         ===================================================================== */
+      .hero {
+        padding-top: 120px;
+        padding-bottom: 64px;
+      }
+      .hero__meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: hsl(var(--bg-elev) / 0.6);
+        border: 1px solid hsl(var(--card-border));
+        font-size: 12px;
+        color: hsl(var(--muted));
+        margin-bottom: 28px;
+      }
+      .hero__meta::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--good);
+        box-shadow: 0 0 8px var(--good);
+      }
+      .hero__sub {
+        font-size: clamp(18px, 1.5vw, 22px);
+        color: hsl(var(--muted));
+        max-width: 52ch;
+        line-height: 1.5;
+        margin-top: 28px;
+      }
+
+      /* =====================================================================
+         Parent platform — establishes SurveySparrow context. Two-column on
+         desktop: brand card on the left, inheritance notes on the right.
+         ===================================================================== */
+      .parent {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+        gap: 16px;
+        margin-top: 28px;
+      }
+      .parent__card {
+        position: relative;
+        padding: 28px;
+        border-radius: 18px;
+        background: linear-gradient(
+          145deg,
+          hsl(186 38% 47% / 0.18) 0%,
+          hsl(var(--bg-elev) / 0.7) 60%
+        );
+        border: 1px solid hsl(186 38% 47% / 0.32);
+        overflow: hidden;
+      }
+      .parent__card::after {
+        /* Faint teal glow tying the card to the SS palette */
+        content: "";
+        position: absolute;
+        inset: -40% -20% auto auto;
+        width: 60%;
+        height: 60%;
+        background: radial-gradient(circle, hsl(186 38% 47% / 0.18), transparent 70%);
+        pointer-events: none;
+      }
+      .parent__head {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .parent__head img {
+        height: 56px;
+        width: 56px;
+        object-fit: contain;
+        background: hsl(var(--bg-elev));
+        border: 1px solid hsl(var(--card-border));
+        border-radius: 14px;
+        padding: 8px;
+      }
+      .parent__role {
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--ss-teal);
+      }
+      .parent__copy {
+        font-size: 14.5px;
+        line-height: 1.6;
+        color: hsl(var(--fg) / 0.9);
+        margin: 0;
+      }
+      .parent__copy em {
+        color: hsl(var(--fg));
+        font-style: italic;
+      }
+      .parent__link {
+        color: var(--ss-teal);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .parent__link:hover {
+        text-decoration: underline;
+      }
+      .parent__notes {
+        padding: 28px;
+        border-radius: 18px;
+        background: hsl(var(--bg-elev) / 0.7);
+        border: 1px solid hsl(var(--card-border));
+      }
+      .parent__list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .parent__list li {
+        font-size: 14px;
+        line-height: 1.6;
+        color: hsl(var(--fg) / 0.88);
+        padding-left: 18px;
+        position: relative;
+      }
+      .parent__list li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 8px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--ss-teal);
+      }
+      .parent__list strong {
+        color: hsl(var(--fg));
+        font-weight: 600;
+      }
+      @media (max-width: 720px) {
+        .parent {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* CRUAG cycle — circular 5-node visualization rendered in SVG.
+         Sits inside the parent card; scales fluidly via the viewBox so
+         it always centers neatly inside the column. */
+      .cruag-cycle {
+        display: block;
+        width: 100%;
+        max-width: 360px;
+        height: auto;
+        margin: 22px auto 4px;
+      }
+
+      .cruag-cycle__name {
+        font-family: "Geist", sans-serif;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        fill: var(--ss-teal);
+      }
+      .cruag-cycle__sub {
+        font-family: "Geist Mono", monospace;
+        font-size: 9.5px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        fill: hsl(var(--muted));
+      }
+
+      .cruag-cycle__node circle {
+        fill: hsl(186 38% 47% / 0.10);
+        stroke: hsl(186 38% 47% / 0.45);
+        stroke-width: 1;
+        transition: fill 200ms ease, stroke 200ms ease;
+      }
+      .cruag-cycle__node text {
+        font-family: "Geist", sans-serif;
+        font-size: 12.5px;
+        font-weight: 500;
+        letter-spacing: -0.005em;
+        fill: hsl(var(--fg));
+      }
+      /* Subtle hover lift on each pillar — non-essential but adds life
+         in the live page (suppressed automatically in print). */
+      .cruag-cycle__node:hover circle {
+        fill: hsl(186 38% 47% / 0.18);
+        stroke: hsl(186 38% 47% / 0.7);
+      }
+
+      .cruag-cycle__arrow path {
+        fill: hsl(186 38% 47% / 0.7);
+      }
+
+      /* =====================================================================
+         Status callout — the "Internal · v2 · graduates-ready" bar.
+         Sits under the hero subtitle; signals the writing standard.
+         ===================================================================== */
+      .status-callout {
+        margin-top: 36px;
+        max-width: 56ch;
+        padding: 18px 22px;
+        border-radius: 14px;
+        background: linear-gradient(
+          135deg,
+          hsl(263 80% 55% / 0.10) 0%,
+          hsl(186 38% 47% / 0.06) 100%
+        );
+        border: 1px solid hsl(263 80% 55% / 0.28);
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .status-callout__chip {
+        flex-shrink: 0;
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: hsl(263 80% 55% / 0.18);
+        color: var(--brand-1);
+        border: 1px solid hsl(263 80% 55% / 0.35);
+        margin-top: 2px;
+      }
+      .status-callout p {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.55;
+        color: hsl(var(--fg) / 0.9);
+      }
+      .status-callout p strong {
+        color: hsl(var(--fg));
+        font-weight: 600;
+      }
+
+      /* =====================================================================
+         Parent platform — establishes SurveySparrow context. Two-column on
+         desktop: brand card on the left, inheritance notes on the right.
+         ===================================================================== */
+      .system {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 32px;
+      }
+      .system__card {
+        position: relative;
+        padding: 24px;
+        border-radius: 18px;
+        background: hsl(var(--bg-elev) / 0.7);
+        border: 1px solid hsl(var(--card-border));
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .system__card img {
+        height: 36px;
+        width: 36px;
+        object-fit: contain;
+        margin-bottom: 12px;
+      }
+      .system__card .role {
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: hsl(var(--muted));
+      }
+      .system__card p {
+        font-size: 14px;
+        line-height: 1.55;
+        color: hsl(var(--muted));
+        margin: 0;
+      }
+      @media (max-width: 720px) {
+        .system {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* =====================================================================
+         Logo locker — sizes
+         ===================================================================== */
+      .locker {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 28px;
+      }
+      .locker__tile {
+        padding: 32px 20px;
+        border-radius: 16px;
+        background: hsl(var(--bg-elev) / 0.6);
+        border: 1px solid hsl(var(--card-border));
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+      }
+      .locker__tile img {
+        object-fit: contain;
+      }
+      .locker__tile.large img {
+        height: 80px;
+        width: 80px;
+      }
+      .locker__tile.medium img {
+        height: 48px;
+        width: 48px;
+      }
+      .locker__tile.small img {
+        height: 28px;
+        width: 28px;
+      }
+      .locker__tile .label {
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        color: hsl(var(--muted));
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .locker__row {
+        margin-bottom: 16px;
+      }
+      .locker__row + .locker__row {
+        margin-top: 24px;
+      }
+
+      /* =====================================================================
+         Color palette
+         ===================================================================== */
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 24px;
+      }
+      .swatch {
+        border-radius: 14px;
+        border: 1px solid hsl(var(--card-border));
+        overflow: hidden;
+        background: hsl(var(--bg-elev) / 0.6);
+        display: flex;
+        flex-direction: column;
+      }
+      .swatch__chip {
+        height: 96px;
+        display: block;
+      }
+      .swatch__body {
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .swatch__name {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .swatch__values {
+        font-family: "Geist Mono", monospace;
+        font-size: 11.5px;
+        color: hsl(var(--muted));
+        line-height: 1.55;
+      }
+      .gradient-row {
+        margin-top: 32px;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid hsl(var(--card-border));
+      }
+      .gradient-row__bar {
+        height: 64px;
+        background: linear-gradient(
+          90deg,
+          var(--brand-1) 0%,
+          var(--brand-2) 50%,
+          var(--brand-3) 100%
+        );
+      }
+      .gradient-row__body {
+        padding: 16px 20px;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        font-family: "Geist Mono", monospace;
+        font-size: 12px;
+        color: hsl(var(--muted));
+        background: hsl(var(--bg-elev) / 0.6);
+      }
+      @media (max-width: 720px) {
+        .swatches {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      /* =====================================================================
+         Type specimen rows
+         ===================================================================== */
+      .specimen {
+        padding: 24px 24px 26px;
+        border-radius: 14px;
+        background: hsl(var(--bg-elev) / 0.6);
+        border: 1px solid hsl(var(--card-border));
+        margin-top: 14px;
+      }
+      .specimen__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+      }
+      .specimen__name {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .specimen__use {
+        font-family: "Geist Mono", monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: hsl(var(--muted));
+      }
+      .specimen__big {
+        font-size: clamp(40px, 5.6vw, 64px);
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+      }
+      .specimen__small {
+        font-size: 15px;
+        color: hsl(var(--muted));
+        margin-top: 10px;
+        font-family: "Geist Mono", monospace;
+      }
+      .specimen.specimen--mono .specimen__big {
+        font-family: "Geist Mono", monospace;
+        letter-spacing: -0.01em;
+        font-size: clamp(28px, 3.6vw, 40px);
+      }
+      .specimen.specimen--serif .specimen__big {
+        font-family: "Fraunces", serif;
+        font-style: italic;
+        font-weight: 400;
+        font-variation-settings: "opsz" 96, "SOFT" 50;
+        letter-spacing: -0.012em;
+      }
+
+      /* =====================================================================
+         Voice — do/don't grid
+         ===================================================================== */
+      .voice {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 24px;
+      }
+      .voice__col {
+        padding: 22px 24px;
+        border-radius: 14px;
+        background: hsl(var(--bg-elev) / 0.6);
+        border: 1px solid hsl(var(--card-border));
+      }
+      .voice__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+        font-size: 13px;
+        font-family: "Geist Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .voice__head.do {
+        color: var(--good);
+      }
+      .voice__head.dont {
+        color: var(--bad);
+      }
+      .voice__col ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .voice__col li {
+        font-size: 14.5px;
+        line-height: 1.5;
+        padding-left: 20px;
+        position: relative;
+      }
+      .voice__col li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 7px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .voice__col.do li::before {
+        background: var(--good);
+      }
+      .voice__col.dont li::before {
+        background: var(--bad);
+      }
+      @media (max-width: 720px) {
+        .voice {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* =====================================================================
+         Pattern showcase
+         ===================================================================== */
+      .patterns {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 14px;
+        margin-top: 24px;
+      }
+      .pattern {
+        padding: 22px 24px;
+        border-radius: 14px;
+        background: hsl(var(--bg-elev) / 0.6);
+        border: 1px solid hsl(var(--card-border));
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .pattern__name {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .pattern__desc {
+        font-size: 13.5px;
+        color: hsl(var(--muted));
+        line-height: 1.55;
+      }
+      .pattern__demo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 80px;
+        padding: 18px;
+        border-radius: 12px;
+        background: hsl(var(--bg) / 0.6);
+        border: 1px dashed hsl(var(--card-border));
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12.5px;
+        font-weight: 500;
+        font-family: "Geist Mono", monospace;
+        background: hsl(263 80% 65% / 0.12);
+        color: var(--brand-1);
+        border: 1px solid hsl(263 80% 65% / 0.35);
+      }
+      .pill--good {
+        background: hsl(160 84% 39% / 0.12);
+        color: var(--good);
+        border-color: hsl(160 84% 39% / 0.35);
+      }
+      .demo__glass {
+        background: hsl(var(--bg-elev) / 0.55);
+        border: 1px solid hsl(var(--card-border) / 0.7);
+        backdrop-filter: blur(12px) saturate(140%);
+        -webkit-backdrop-filter: blur(12px) saturate(140%);
+        border-radius: 999px;
+        padding: 10px 18px;
+        font-size: 13px;
+        color: hsl(var(--fg));
+        box-shadow:
+          inset 0 1px 0 hsl(var(--fg) / 0.06),
+          0 16px 40px -20px hsl(263 80% 35% / 0.35);
+      }
+      .demo__organic {
+        padding: 22px 26px;
+        background: hsl(var(--bg-elev));
+        border: 1px solid hsl(var(--card-border));
+        border-top-left-radius: 1.5rem;
+        border-top-right-radius: 0.375rem;
+        border-bottom-right-radius: 1.5rem;
+        border-bottom-left-radius: 0.375rem;
+        font-size: 14px;
+        color: hsl(var(--fg) / 0.9);
+        max-width: 280px;
+        text-align: center;
+      }
+      @media (max-width: 720px) {
+        .patterns {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* =====================================================================
+         Footer
+         ===================================================================== */
+      footer {
+        padding: 48px 0 80px;
+        border-top: 1px solid hsl(var(--card-border) / 0.5);
+        margin-top: 32px;
+      }
+      .footer__inner {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        font-size: 13px;
+        color: hsl(var(--muted));
+      }
+      .footer__mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .footer__mark img {
+        height: 28px;
+        width: 28px;
+        object-fit: contain;
+      }
+      .footer__meta {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        text-align: right;
+      }
+
+      /* =====================================================================
+         Print — preserve the user's CURRENT theme (dark or light) and only
+         apply structural tweaks. The previous version force-flattened to
+         light, which felt wrong if the reader had selected dark.
+
+         Key trick: print-color-adjust: exact tells the browser to KEEP all
+         declared backgrounds/colors when printing — without this Chrome
+         drops dark backgrounds by default to save ink.
+         ===================================================================== */
+      @media print {
+        /* Force the printer to honour the active theme's colour tokens. */
+        html,
+        body,
+        section,
+        .system__card,
+        .locker__tile,
+        .swatch,
+        .swatch__chip,
+        .specimen,
+        .voice__col,
+        .pattern,
+        .pattern__demo,
+        .demo__glass,
+        .demo__organic,
+        .gradient-row,
+        .gradient-row__bar,
+        .gradient-text,
+        .pill,
+        .pill--good,
+        .voice__head,
+        .voice__col li::before,
+        .eyebrow,
+        .top-bar__inner,
+        /* v2 additions: */
+        .status-callout,
+        .status-callout__chip,
+        .cruag,
+        .cruag__sep,
+        .parent__card,
+        .parent__notes,
+        .parent__list li::before {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        /* Hide chrome that doesn't belong on a printed page. */
+        .top-bar {
+          display: none;
+        }
+
+        /* Tighter section rhythm for print + don't split cards mid-page. */
+        section {
+          padding: 24px 0;
+          page-break-inside: avoid;
+        }
+        .hero {
+          padding-top: 12px;
+        }
+        .swatches,
+        .voice,
+        .patterns,
+        .locker,
+        .system {
+          page-break-inside: avoid;
+        }
+
+        /* Slightly compressed display type for print fitment. */
+        h1 {
+          font-size: 56px;
+        }
+        h2 {
+          font-size: 28px;
+        }
+        .lead,
+        .hero__sub {
+          font-size: 15px;
+        }
+        .swatch__chip {
+          height: 64px;
+        }
+        .gradient-row__bar {
+          height: 40px;
+        }
+
+        /* Flatten backdrop-blur effects — they cost render time and most
+           PDF viewers strip them anyway. The underlying surface colour
+           still prints from the current theme. */
+        .demo__glass {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+
+        a {
+          color: inherit;
+          text-decoration: none;
+        }
+        footer {
+          padding-bottom: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <div class="top-bar__inner">
+        <a class="top-bar__mark" href="/flock">
+          <img src="/brand/flock-logo.svg" alt="Flock" />
+          <span>Flock · Brand Guide</span>
+        </a>
+        <div class="top-bar__actions">
+          <button class="top-bar__btn" type="button" onclick="window.print()" title="Save as PDF">
+            Save PDF
+          </button>
+          <button
+            class="top-bar__btn top-bar__icon-btn"
+            type="button"
+            aria-label="Toggle theme"
+            title="Toggle theme"
+            onclick="toggleTheme()"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- =================================================================
+           Hero
+           ================================================================= -->
+      <section class="hero">
+        <div class="hero__meta">Internal · SurveySparrow GTM</div>
+        <h1>
+          <span class="gradient-text">Flock</span>
+          <span class="serif">brand guide.</span>
+        </h1>
+        <p class="hero__sub">
+          A short, reusable reference for anyone designing for, writing for,
+          or extending the Flock toolkit. Covers logos, colour, type, voice,
+          and the visual patterns that hold the system together.
+        </p>
+        <div class="status-callout">
+          <span class="status-callout__chip">Internal · v2</span>
+          <p>
+            <strong>Audience today is the SurveySparrow GTM team.</strong>
+            Every claim and visual in here is already cleared against the
+            SurveySparrow Truth Model + Maturity Matrix — so any line can
+            graduate to customer-facing copy without rewriting. Hold to
+            this bar when adding new sections.
+          </p>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           The parent platform — establishes SurveySparrow as the company
+           Flock is built inside and for. Sits BEFORE "The system" so
+           readers anchor on the parent brand first.
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">The parent platform</div>
+        <h2>Built inside SurveySparrow.</h2>
+        <p class="lead">
+          Flock is internal tooling for the SurveySparrow GTM team — built
+          on top of the SurveySparrow platform, every demo it produces
+          lands inside a SurveySparrow dashboard. The parent brand sets
+          the context; Flock keeps the tone.
+        </p>
+
+        <div class="parent">
+          <div class="parent__card">
+            <div class="parent__head">
+              <img src="/brand/surveysparrow-symbol.svg" alt="SurveySparrow" />
+              <div>
+                <span class="parent__role">Parent platform · Public brand</span>
+                <h3 style="margin-top: 4px">SurveySparrow</h3>
+              </div>
+            </div>
+            <p class="parent__copy">
+              The customer intelligence and feedback orchestration
+              platform. SurveySparrow helps teams collect feedback at
+              meaningful customer moments, reach people through the right
+              channels, understand the patterns behind the responses, act
+              on issues, and govern visibility across teams and regions.
+            </p>
+
+            <!-- CRUAG cycle — circular visualization of the 5-pillar
+                 framework. Five node circles evenly distributed (72° apart)
+                 around a faint teal-dashed ring; clockwise arrowheads at
+                 the midpoints show the flow; the center reads "CRUAG /
+                 (Kroog) Framework". All positions are calculated from a
+                 360x340 viewBox with the ring centered at (180, 170)
+                 and radius 120. -->
+            <svg
+              class="cruag-cycle"
+              viewBox="0 0 360 340"
+              role="img"
+              aria-label="CRUAG framework cycle: Capture, Reach, Understand, Act, Govern"
+            >
+              <!-- Subtle dashed ring threading the 5 nodes together. -->
+              <circle
+                cx="180"
+                cy="170"
+                r="120"
+                fill="none"
+                stroke="hsl(186 38% 47% / 0.32)"
+                stroke-width="1"
+                stroke-dasharray="2 5"
+              />
+
+              <!-- Five clockwise arrowheads at the midpoints between
+                   consecutive nodes. Each is a small triangle centered
+                   on the ring and rotated so it's tangent to it. -->
+              <g class="cruag-cycle__arrow">
+                <g transform="translate(250.5 72.9) rotate(36)"><path d="M -5 -4 L 5 0 L -5 4 Z" /></g>
+                <g transform="translate(294.1 207.1) rotate(108)"><path d="M -5 -4 L 5 0 L -5 4 Z" /></g>
+                <g transform="translate(180 290) rotate(180)"><path d="M -5 -4 L 5 0 L -5 4 Z" /></g>
+                <g transform="translate(65.9 207.1) rotate(252)"><path d="M -5 -4 L 5 0 L -5 4 Z" /></g>
+                <g transform="translate(109.5 72.9) rotate(324)"><path d="M -5 -4 L 5 0 L -5 4 Z" /></g>
+              </g>
+
+              <!-- Center label: framework name + phonetic pronunciation. -->
+              <text x="180" y="166" text-anchor="middle" class="cruag-cycle__name">CRUAG</text>
+              <text x="180" y="184" text-anchor="middle" class="cruag-cycle__sub">(Kroog) framework</text>
+
+              <!-- Five pillar nodes, clockwise from top. -->
+              <g class="cruag-cycle__node">
+                <circle cx="180" cy="50" r="40" />
+                <text x="180" y="54" text-anchor="middle">Capture</text>
+              </g>
+              <g class="cruag-cycle__node">
+                <circle cx="294.1" cy="132.9" r="40" />
+                <text x="294.1" y="136.9" text-anchor="middle">Reach</text>
+              </g>
+              <g class="cruag-cycle__node">
+                <circle cx="250.5" cy="267.1" r="40" />
+                <text x="250.5" y="271.1" text-anchor="middle">Understand</text>
+              </g>
+              <g class="cruag-cycle__node">
+                <circle cx="109.5" cy="267.1" r="40" />
+                <text x="109.5" y="271.1" text-anchor="middle">Act</text>
+              </g>
+              <g class="cruag-cycle__node">
+                <circle cx="65.9" cy="132.9" r="40" />
+                <text x="65.9" y="136.9" text-anchor="middle">Govern</text>
+              </g>
+            </svg>
+
+            <p class="parent__copy" style="margin-top: 14px">
+              <a href="https://surveysparrow.com" target="_blank" rel="noreferrer" class="parent__link">surveysparrow.com →</a>
+            </p>
+          </div>
+
+          <div class="parent__notes">
+            <h4 style="margin-bottom: 14px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: hsl(var(--muted))">
+              How Flock inherits the brand
+            </h4>
+            <ul class="parent__list">
+              <li>
+                <strong>Positioning:</strong> lead with the external
+                phrase — <em>"customer intelligence and feedback
+                orchestration platform."</em> Flock is internal tooling,
+                but every line is graduation-ready, so we hold to that
+                bar.
+              </li>
+              <li>
+                <strong>Colour:</strong> SurveySparrow teal
+                <span class="mono" style="color: var(--ss-teal)">#4A9CA6</span>
+                appears in Flock only where SurveySparrow itself is being
+                referenced — connection-status pills, the deck's
+                "SurveySparrow shows the show" card, push-complete moments.
+              </li>
+              <li>
+                <strong>Logo:</strong> use the parent sparrow symbol
+                exactly as supplied. Never recolour, restroke, or compose
+                it inside a frame. It carries the parent's authority
+                unchanged.
+              </li>
+              <li>
+                <strong>Voice:</strong> inherit the warmth — conversational
+                and direct — but skip the marketing flourish. Flock speaks
+                to practitioners, not prospects.
+              </li>
+              <li>
+                <strong>Trust signals:</strong> when Flock is on a screen
+                that customer data could touch, the parent's compliance
+                badges (SOC, ISO 27001, HIPAA, GDPR, CCPA, CSA STAR)
+                apply. Don't claim them on Flock's behalf; do respect them.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           The system
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">The system</div>
+        <h2>Three names, one family.</h2>
+        <p class="lead">
+          Flock is the umbrella — the internal toolkit. Inside it, two
+          products sit on either side of the SurveySparrow demo workflow.
+        </p>
+
+        <div class="system">
+          <div class="system__card">
+            <img src="/brand/flock-logo.svg" alt="Flock" />
+            <span class="role">Umbrella</span>
+            <h3>Flock</h3>
+            <p>
+              The name for the toolkit itself, plus the enablement deck that
+              explains it. Use Flock when referring to the system as a whole.
+            </p>
+          </div>
+          <div class="system__card">
+            <img src="/brand/weave-logo.svg" alt="Weave" />
+            <span class="role">Builder</span>
+            <h3>Weave</h3>
+            <p>
+              The survey builder. Drafts surveys scoped to a vertical or use
+              case and exports them in SurveySparrow's import format.
+            </p>
+          </div>
+          <div class="system__card">
+            <img src="/brand/plumage-logo.svg" alt="Plumage" />
+            <span class="role">Responder</span>
+            <h3>Plumage</h3>
+            <p>
+              The response generator. Fills any SurveySparrow survey with
+              persona-driven, AI-generated responses in minutes.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           Logos
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">Logos</div>
+        <h2>Wordmarks.</h2>
+        <p class="lead">
+          Four marks live in this system. SurveySparrow at the top — the
+          parent — sits in its own teal palette. The Flock trio underneath
+          shares a single purple-family gradient so they read as siblings.
+          Use SVG wherever possible; fall back to PNG only when SVG isn't
+          supported.
+        </p>
+
+        <h4 style="margin-top: 28px; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ss-teal)">
+          Parent mark
+        </h4>
+        <div class="locker locker__row" style="grid-template-columns: repeat(3, 1fr)">
+          <div class="locker__tile large" style="border-color: hsl(186 38% 47% / 0.4)">
+            <img src="/brand/surveysparrow-symbol.svg" alt="" />
+            <span class="label" style="color: var(--ss-teal)">SurveySparrow · 80px</span>
+          </div>
+          <div class="locker__tile medium" style="border-color: hsl(186 38% 47% / 0.4)">
+            <img src="/brand/surveysparrow-symbol.svg" alt="" />
+            <span class="label" style="color: var(--ss-teal)">48px</span>
+          </div>
+          <div class="locker__tile small" style="border-color: hsl(186 38% 47% / 0.4)">
+            <img src="/brand/surveysparrow-symbol.svg" alt="" />
+            <span class="label" style="color: var(--ss-teal)">28px</span>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 36px; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--brand-1)">
+          Flock family
+        </h4>
+
+        <div class="locker locker__row">
+          <div class="locker__tile large">
+            <img src="/brand/flock-logo.svg" alt="" />
+            <span class="label">Flock · 80px</span>
+          </div>
+          <div class="locker__tile large">
+            <img src="/brand/weave-logo.svg" alt="" />
+            <span class="label">Weave · 80px</span>
+          </div>
+          <div class="locker__tile large">
+            <img src="/brand/plumage-logo.svg" alt="" />
+            <span class="label">Plumage · 80px</span>
+          </div>
+        </div>
+
+        <div class="locker locker__row">
+          <div class="locker__tile medium">
+            <img src="/brand/flock-logo.svg" alt="" />
+            <span class="label">48px</span>
+          </div>
+          <div class="locker__tile medium">
+            <img src="/brand/weave-logo.svg" alt="" />
+            <span class="label">48px</span>
+          </div>
+          <div class="locker__tile medium">
+            <img src="/brand/plumage-logo.svg" alt="" />
+            <span class="label">48px</span>
+          </div>
+        </div>
+
+        <div class="locker locker__row">
+          <div class="locker__tile small">
+            <img src="/brand/flock-logo.svg" alt="" />
+            <span class="label">28px · favicon</span>
+          </div>
+          <div class="locker__tile small">
+            <img src="/brand/weave-logo.svg" alt="" />
+            <span class="label">28px · favicon</span>
+          </div>
+          <div class="locker__tile small">
+            <img src="/brand/plumage-logo.svg" alt="" />
+            <span class="label">28px · favicon</span>
+          </div>
+        </div>
+
+        <p style="margin-top: 24px; font-size: 13.5px; color: hsl(var(--muted))">
+          <strong style="color: hsl(var(--fg))">Clear-space rule:</strong>
+          always leave at least 25% of the mark's height as padding around
+          the logo. Don't stretch, don't recolour, don't add stroke. The
+          SurveySparrow mark is especially off-limits — use it exactly as
+          supplied.
+        </p>
+      </section>
+
+      <!-- =================================================================
+           Color
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">Colour</div>
+        <h2>Flock purple. SurveySparrow teal. Working greys.</h2>
+        <p class="lead">
+          The brand-purple gradient is the spine of every Flock surface.
+          SurveySparrow teal appears only on parent-branded touch points —
+          status pills, push moments, the SS trio card. Status colours are
+          intentionally identical across themes to keep green/yellow/red
+          instantly scannable.
+        </p>
+
+        <h4 style="margin-top: 24px; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--brand-1)">
+          Flock palette
+        </h4>
+        <div class="swatches">
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #c084fc"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">Lavender</span>
+              <span class="swatch__values">
+                #C084FC<br />hsl(270, 95%, 75%)<br /><small>brand-1 · accents, eyebrow text</small>
+              </span>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #8b5cf6"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">Indigo</span>
+              <span class="swatch__values">
+                #8B5CF6<br />hsl(258, 90%, 66%)<br /><small>brand-2 · primary fills</small>
+              </span>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #5b21b6"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">Deep Violet</span>
+              <span class="swatch__values">
+                #5B21B6<br />hsl(263, 70%, 42%)<br /><small>brand-3 · gradient anchor</small>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="gradient-row">
+          <div class="gradient-row__bar"></div>
+          <div class="gradient-row__body">
+            <span>linear-gradient(135deg, #C084FC 0%, #8B5CF6 50%, #5B21B6 100%)</span>
+            <span>use on: hero title · primary buttons · gradient text</span>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 36px; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ss-teal)">
+          SurveySparrow palette
+        </h4>
+        <div class="swatches">
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #4a9ca6"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">SS Teal</span>
+              <span class="swatch__values">
+                #4A9CA6<br />hsl(186, 38%, 47%)<br /><small>parent-brand fills, sparrow accents</small>
+              </span>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #3fa9b0"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">SS Teal · bright</span>
+              <span class="swatch__values">
+                #3FA9B0<br />hsl(184, 47%, 47%)<br /><small>celebration confetti, push-success cue</small>
+              </span>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #2d7a82"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">SS Teal · deep</span>
+              <span class="swatch__values">
+                #2D7A82<br />hsl(186, 49%, 34%)<br /><small>hover/pressed states on teal CTAs</small>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 36px; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: hsl(var(--muted))">
+          Semantic palette · shared across both brands
+        </h4>
+        <div class="swatches" style="grid-template-columns: repeat(2, 1fr)">
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #10b981"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">Success</span>
+              <span class="swatch__values">
+                #10B981<br />hsl(160, 84%, 39%)<br /><small>connection ok, push complete</small>
+              </span>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="swatch__chip" style="background: #ef4444"></div>
+            <div class="swatch__body">
+              <span class="swatch__name">Error</span>
+              <span class="swatch__values">
+                #EF4444<br />hsl(0, 84%, 60%)<br /><small>connection failed, push error</small>
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           Typography
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">Typography</div>
+        <h2>Geist, Geist Mono, Fraunces.</h2>
+        <p class="lead">
+          Geist Sans handles all body and UI. Geist Mono carries numbers,
+          status pills, and code-flavoured eyebrows. Fraunces italic
+          appears only as a soft display accent — never for paragraphs.
+        </p>
+
+        <div class="specimen">
+          <div class="specimen__head">
+            <span class="specimen__name">Geist Sans</span>
+            <span class="specimen__use">Body · UI · headings</span>
+          </div>
+          <div class="specimen__big" style="font-weight: 700">
+            Hours back to the customer.
+          </div>
+          <div class="specimen__small">400 / 500 / 600 / 700 / 800 · -0.02 tracking on display sizes</div>
+        </div>
+
+        <div class="specimen specimen--mono">
+          <div class="specimen__head">
+            <span class="specimen__name">Geist Mono</span>
+            <span class="specimen__use">Numbers · pills · code</span>
+          </div>
+          <div class="specimen__big">247 responses · $0.018 each</div>
+          <div class="specimen__small">400 / 500 · uppercase tracking 0.08–0.18em for eyebrows</div>
+        </div>
+
+        <div class="specimen specimen--serif">
+          <div class="specimen__head">
+            <span class="specimen__name">Fraunces (italic)</span>
+            <span class="specimen__use">Display accent only · 1–4 words</span>
+          </div>
+          <div class="specimen__big">tools for the team.</div>
+          <div class="specimen__small">opsz 96 · SOFT 50 · ital 1 · use sparingly</div>
+        </div>
+
+        <div class="parent__notes" style="margin-top: 18px">
+          <h4 style="margin-bottom: 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ss-teal)">
+            On SurveySparrow's typography
+          </h4>
+          <p style="font-size: 14px; line-height: 1.6; color: hsl(var(--fg) / 0.88); margin: 0">
+            SurveySparrow's public brand leans on a friendly humanist
+            sans-serif — warm but not playful. Flock doesn't try to match
+            it pixel-for-pixel. <strong>Geist</strong> sits in the same
+            family of clean, neutral sans-serifs, so the two brands
+            visually agree without one being a copy of the other. When
+            embedding SurveySparrow content (screenshots, mocks, the
+            sparrow mark) inside Flock surfaces, keep their typography
+            untouched — never re-type SurveySparrow's wordmark in Geist.
+          </p>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           Voice — two layers: general tone (top) and SurveySparrow-specific
+           verbatim discipline (bottom). The verbatim rules come from the
+           Truth Model and apply to any copy that touches SS feature names.
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">Voice &amp; tone</div>
+        <h2>Measured. Specific. Plainspoken.</h2>
+        <p class="lead">
+          Flock is internal tooling for SEs, Implementation, and CSMs —
+          busy practitioners. Skip marketing flourish; respect their time
+          with words that earn their place on the screen.
+        </p>
+
+        <div class="voice">
+          <div class="voice__col do">
+            <div class="voice__head do">✓ Do</div>
+            <ul>
+              <li>Lead with the trade-off: <em>"so the hours go back to customer problems."</em></li>
+              <li>Use concrete numbers where they exist (response count, $/response, latency).</li>
+              <li>Short sentences. Then short sentences. Then one that runs a touch longer to make the point land.</li>
+              <li>Acknowledge tooling has limits — <em>"you can walk away mid-run."</em></li>
+              <li>Name the specific feature when claiming AI work: Echo, Wing AI, CogniVue, SmartReach, Co-Pilot, Enrich.</li>
+            </ul>
+          </div>
+          <div class="voice__col dont">
+            <div class="voice__head dont">✗ Don't</div>
+            <ul>
+              <li>"Unfair advantage" · "kill the room" · "10x" — hype words break the trust contract.</li>
+              <li>"Empower" · "supercharge" · "delight" — meaningless verbs.</li>
+              <li>"Best-in-class" · "revolutionary" · "next-generation" — explain <em>what it does</em> instead.</li>
+              <li>"AI-powered everything" — name the actual feature doing the work.</li>
+              <li>Over-promise. If the LLM is rate-limited, say so.</li>
+              <li>Use exclamation marks. Confidence speaks softly.</li>
+            </ul>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- =================================================================
+           Patterns
+           ================================================================= -->
+      <section>
+        <div class="eyebrow">Visual patterns</div>
+        <h2>The four that carry the system.</h2>
+        <p class="lead">
+          Reach for these first before inventing new ones. Each is wired
+          into the design tokens so themes apply automatically.
+        </p>
+
+        <div class="patterns">
+          <div class="pattern">
+            <span class="pattern__name">Gradient text</span>
+            <p class="pattern__desc">
+              Brand-purple → SS-teal sweep, clipped to text. Reserve for the
+              one wordmark per page that should anchor the eye.
+            </p>
+            <div class="pattern__demo">
+              <span class="gradient-text" style="font-size: 40px; font-weight: 800; letter-spacing: -0.04em">Flock</span>
+            </div>
+          </div>
+
+          <div class="pattern">
+            <span class="pattern__name">Glass surface</span>
+            <p class="pattern__desc">
+              Semi-transparent fill + backdrop-blur + inset highlight + soft
+              purple-tinted drop shadow. For floating chrome (top bar,
+              toasts, cost panel).
+            </p>
+            <div class="pattern__demo">
+              <div class="demo__glass">backdrop-filter: blur(18px)</div>
+            </div>
+          </div>
+
+          <div class="pattern">
+            <span class="pattern__name">Pills · eyebrow type</span>
+            <p class="pattern__desc">
+              Geist Mono, all-caps where label-like, with tracked spacing.
+              Status pills carry the semantic colour at 12% fill / 35%
+              border.
+            </p>
+            <div class="pattern__demo" style="gap: 8px; flex-wrap: wrap">
+              <span class="pill">Pro tip</span>
+              <span class="pill pill--good">Connected</span>
+            </div>
+          </div>
+
+          <div class="pattern">
+            <span class="pattern__name">Organic card</span>
+            <p class="pattern__desc">
+              Asymmetric border-radii (1.5rem ↔ 0.375rem on the diagonal).
+              Used sparingly on one signature card per surface — overuse
+              kills the effect.
+            </p>
+            <div class="pattern__demo">
+              <div class="demo__organic">card-organic</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="container">
+      <div class="footer__inner">
+        <div class="footer__mark">
+          <img src="/brand/flock-logo.svg" alt="" />
+          <span>Built for the SurveySparrow GTM team.</span>
+        </div>
+        <div class="footer__meta">
+          <span>Flock Brand Guide · v2 · Internal</span>
+          <span class="mono">Owner: Sujith ("Kris")</span>
+          <span class="mono" style="opacity: 0.7">Aligns to Truth Model + Maturity Matrix</span>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      // Lightweight theme toggle — mirrors the Flock deck pattern so the
+      // guide reads as part of the same system.
+      const THEME_KEY = "flock-brand-guide-theme";
+      (function initTheme() {
+        try {
+          const saved = localStorage.getItem(THEME_KEY);
+          if (saved === "light" || saved === "dark") {
+            document.documentElement.setAttribute("data-theme", saved);
+          }
+        } catch (e) {}
+      })();
+      function toggleTheme() {
+        const cur = document.documentElement.getAttribute("data-theme");
+        const next = cur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+      }
+    </script>
+  </body>
+</html>

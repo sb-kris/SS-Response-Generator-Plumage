@@ -13,6 +13,7 @@ import {
 } from "@/lib/generation/cost-estimator";
 import { partitionQuestionsForGeneration } from "@/lib/surveysparrow/types";
 import type { SurveyContext } from "@/lib/llm/prompts/response-prompt";
+import { playFailureCue } from "@/lib/effects/sound-effects";
 
 // Hook that owns the lifecycle of a Phase 5a response-generation run.
 //
@@ -65,8 +66,7 @@ export function useGenerateResponses(): GenerateResponsesHookState {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  // Cancel any in-flight run if the component unmounts (route change, sign-out).
-  // Sign-out also calls `reset()` on the store directly via LogoutButton.
+  // Cancel any in-flight run if the component unmounts (route change, etc.).
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -218,6 +218,10 @@ export function useGenerateResponses(): GenerateResponsesHookState {
             }
             case "error":
               failRun(event.message);
+              // Audible cue — same preference as celebration. SE running
+              // a demo at low volume gets a clearly different sound than
+              // success so a glance away from the screen isn't fatal.
+              void playFailureCue();
               break;
             case "debug":
               appendDebugLog({
@@ -240,6 +244,10 @@ export function useGenerateResponses(): GenerateResponsesHookState {
           abortRun();
         } else {
           failRun(result.error ?? `Generation failed (HTTP ${result.status}).`);
+          // Same cue as the in-stream "error" event above. Belt + braces:
+          // some failure modes (HTTP-level network errors) come back here
+          // rather than via the SSE error event.
+          void playFailureCue();
         }
       }
     },

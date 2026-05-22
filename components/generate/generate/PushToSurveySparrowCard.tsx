@@ -26,6 +26,7 @@ import { DebugPanel } from "./DebugPanel";
 import { RotatingLoadingMessage } from "@/components/ui/RotatingLoadingMessage";
 import { PUSH_MESSAGES } from "@/lib/copy/loading-messages";
 import { celebrateFirstPush, replayCelebration } from "@/lib/effects/celebrate";
+import { playFailureCue } from "@/lib/effects/sound-effects";
 import { SpeakerButton } from "@/components/shared/SpeakerButton";
 
 // Phase 5c — States D (pushing) and E (push complete / partial failed).
@@ -44,8 +45,7 @@ export function PushToSurveySparrowCard({ pushHook, onBack, autoStart }: Props) 
   const pushStatus = useResponsesStore((s) => s.pushStatus);
   const pushProgress = useResponsesStore((s) => s.pushProgress);
   const responses = useResponsesStore((s) => s.responses);
-  const resetPush = useResponsesStore((s) => s.resetPush);
-  const { push, cancel, canPush, reasonNotReady } = pushHook;
+  const { push, pushAgain, cancel, canPush, reasonNotReady } = pushHook;
 
   // Auto-start push when skip-preview is active (signalled by the parent).
   useEffect(() => {
@@ -64,6 +64,18 @@ export function PushToSurveySparrowCard({ pushHook, onBack, autoStart }: Props) 
       void celebrateFirstPush();
     }
   }, [pushStatus, pushProgress.failed, pushProgress.pushed]);
+
+  // Failure cue — fires once each time a push completes with any failures.
+  // Distinct from celebration: we WANT this to fire every time (not session-
+  // guarded) because each failed batch is a discrete event the user needs to
+  // hear. Detached useEffect with the same trigger keys means changing
+  // pushed counts can't accidentally double-fire — we only react to the
+  // moment the status flips to "complete".
+  useEffect(() => {
+    if (pushStatus === "complete" && pushProgress.failed > 0) {
+      void playFailureCue();
+    }
+  }, [pushStatus, pushProgress.failed]);
 
   const isRunning = pushStatus === "running";
   const isComplete = pushStatus === "complete";
@@ -230,10 +242,27 @@ export function PushToSurveySparrowCard({ pushHook, onBack, autoStart }: Props) 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
           {isRunning && (
-            <Button variant="outline" size="sm" onClick={cancel} className="gap-1.5">
-              <X className="h-3.5 w-3.5" />
-              Cancel push
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={cancel} className="gap-1.5">
+                <X className="h-3.5 w-3.5" />
+                Cancel push
+              </Button>
+              {/* Back-to-preview while pushing — the push hook lives on the
+                  parent and continues in the background, so the user can
+                  inspect / verify responses without halting delivery. The
+                  push card auto-returns via the Push button when they want
+                  to watch progress again. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onBack}
+                className="gap-1.5"
+                title="Push continues in the background. Click Push to return here."
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to preview
+              </Button>
+            </>
           )}
           {/* "Send remaining" — continues after a cancel (pushes all non-pushed). */}
           {isComplete && (wasCancelled || failedResponses.length > 0) && (
@@ -248,16 +277,22 @@ export function PushToSurveySparrowCard({ pushHook, onBack, autoStart }: Props) 
                 : `Retry failed (${failedResponses.length})`}
             </Button>
           )}
-          {/* "Send all again" — resets all statuses and lets the user restart. */}
-          {isComplete && pushedCount > 0 && (wasCancelled || failedResponses.length > 0) && (
+          {/* "Push another copy" — re-pushes the entire response set even
+              after a clean success. Two scenarios where this matters:
+              (1) SS accepted the batch (202) but a silent downstream drop
+                  meant some responses never landed — UI says "Pushed" but
+                  the dashboard is missing data. One-click rescue.
+              (2) The user genuinely wants duplicates for a stress demo. */}
+          {isComplete && pushedCount > 0 && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => resetPush()}
+              onClick={() => void pushAgain()}
               className="gap-1.5"
+              title="Resets every response and pushes the full set again."
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              Send all again
+              Push another copy
             </Button>
           )}
           {isComplete && (

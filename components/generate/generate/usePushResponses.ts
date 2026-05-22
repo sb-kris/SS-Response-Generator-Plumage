@@ -20,12 +20,26 @@ import { buildSSBatchPayload } from "@/lib/surveysparrow/response-builder";
 // much more efficient than the previous per-response approach, and the only
 // way to include contact data in the single-call flow.
 
-// Smaller batch size gives incremental progress bar updates without
-// sacrificing much throughput — 20 responses per API round-trip.
-const BATCH_SIZE = 20;
+// SS /v3/responses/batch accepts up to 200 responses per call (asynchronous,
+// returns a polling token). We push at 100/batch — half the SS ceiling —
+// because a smaller batch gives meaningful progress-bar movement for
+// medium runs (200–500 responses) without doubling our HTTP overhead.
+// For a 500-response run this is 5 calls instead of the previous 25.
+const BATCH_SIZE = 100;
 
 export interface PushResponsesHookState {
   push: () => Promise<void>;
+  /**
+   * Re-push the entire response set even if every response has already
+   * been pushed once. Use cases:
+   *   - The SS API accepted a batch (returned 202) but a silent
+   *     downstream failure dropped some responses.
+   *   - The user genuinely wants duplicate records in SurveySparrow
+   *     (e.g. for a stress-test demo).
+   * Implementation: resets every response back to "generated" status so
+   * the normal push() filter (`status !== "pushed"`) picks them up.
+   */
+  pushAgain: () => Promise<void>;
   cancel: () => void;
   canPush: boolean;
   reasonNotReady: string | null;
@@ -75,6 +89,20 @@ export function usePushResponses(): PushResponsesHookState {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    // Build a question-id → parent-question-id lookup for the push payload.
+    // Read fresh from the survey store at push time so we always get the
+    // current survey's question metadata, not a stale closure value.
+    // Without this map, follow-up types like NPSFeedback would push without
+    // a parent reference and SurveySparrow would silently drop the answer
+    // (rendering "Not Answered" in the response viewer).
+    const surveyQuestions = useSurveyStore.getState().questions.data ?? [];
+    const questionParents = new Map<number, number>();
+    for (const q of surveyQuestions) {
+      if (typeof q.parent_question_id === "number") {
+        questionParents.set(q.id, q.parent_question_id);
+      }
+    }
+
     // Build (response, persona) pairs, skipping any orphaned responses.
     const pairs: Array<{ responseId: string; personaName: string; response: typeof toPush[0]; persona: ReturnType<typeof personasById.get> }> = [];
     for (const response of toPush) {
@@ -113,6 +141,7 @@ export function usePushResponses(): PushResponsesHookState {
             ? ss.channels.map((c) => ({ channelId: c.channelId, weight: c.weight }))
             : [],
           tags,
+          questionParents,
         },
       );
 
@@ -122,7 +151,19 @@ export function usePushResponses(): PushResponsesHookState {
         label: `Batch ${batchNum}/${totalBatches} — sending ${batch.length} response${batch.length === 1 ? "" : "s"}`,
       });
 
-      let result: { ok: boolean; submitted?: number; processed?: number; failed?: number; error?: string; accepted?: boolean };
+      let result: {
+        ok: boolean;
+        submitted?: number;
+        processed?: number;
+        failed?: number;
+        error?: string;
+        accepted?: boolean;
+        timedOut?: boolean;
+        /** Up to 3 unique human-readable reasons from per-response items. */
+        failureReasons?: string[];
+        /** Raw SS-side terminal status — surfaced for debugging. */
+        terminalStatus?: string;
+      };
       try {
         const res = await loggedFetch(
           "/api/surveysparrow/responses",
@@ -161,18 +202,43 @@ export function usePushResponses(): PushResponsesHookState {
       const failedCount = result.failed ?? 0;
       const successCount = batch.length - failedCount;
 
+      // Compose a detail string that captures WHY responses failed when
+      // SS gave us reasons. Previously the debug log just said "N failed"
+      // with no clue why — the user had to dig through API logs. Now the
+      // first ~3 unique reasons land directly in the debug panel.
+      const reasonsText =
+        result.failureReasons && result.failureReasons.length > 0
+          ? `· reasons: ${result.failureReasons.join("; ")}`
+          : "";
+      const terminalText = result.terminalStatus
+        ? ` (SS status: ${result.terminalStatus.toLowerCase()})`
+        : "";
+      const detailParts: string[] = [];
+      if (result.accepted) detailParts.push("accepted (no polling token)");
+      if (result.timedOut) detailParts.push("polling timed out — SS may still finalize");
+      if (reasonsText) detailParts.push(reasonsText.replace(/^· /, ""));
+
       appendDebugLog({
         time: Date.now(),
         kind: failedCount > 0 ? "batch_fail" : "batch_ok",
-        label: `Batch ${batchNum}/${totalBatches} — ${successCount} pushed${failedCount > 0 ? `, ${failedCount} failed` : ""}`,
-        detail: result.accepted ? "accepted (best-effort)" : undefined,
+        label: `Batch ${batchNum}/${totalBatches} — ${successCount} pushed${failedCount > 0 ? `, ${failedCount} failed` : ""}${terminalText}`,
+        detail: detailParts.length > 0 ? detailParts.join(" · ") : undefined,
       });
 
       // SS doesn't report WHICH responses failed in a batch — mark the
       // last `failedCount` entries as failed (order matches submission).
+      // When SS gave us reason strings, store the first one against each
+      // failed response so the UI can surface specifics (e.g. "Channel
+      // not found") rather than a generic "Failed in batch".
+      const primaryReason = result.failureReasons?.[0] ?? "Failed in batch";
       for (let j = 0; j < batch.length; j++) {
         const isSuccess = j < successCount;
-        recordPushResult(batch[j]!.responseId, isSuccess, undefined, isSuccess ? undefined : "Failed in batch");
+        recordPushResult(
+          batch[j]!.responseId,
+          isSuccess,
+          undefined,
+          isSuccess ? undefined : primaryReason,
+        );
       }
     }
 
@@ -198,7 +264,22 @@ export function usePushResponses(): PushResponsesHookState {
     abortRef.current?.abort();
   }, []);
 
-  return { push, cancel, canPush, reasonNotReady };
+  const resetPush = useResponsesStore((s) => s.resetPush);
+
+  const pushAgain = useCallback(async () => {
+    // Bail if a push is already running — pushing the same set twice in
+    // parallel would result in messy split status updates.
+    if (useResponsesStore.getState().pushStatus === "running") return;
+    // Flip every response back to "generated" so the normal push flow
+    // sweeps them up again. Clears `pushedResponseId` and any prior
+    // error message so the new attempt starts clean.
+    resetPush();
+    // resetPush() is a Zustand `set` call — synchronous — so the next
+    // `push()` reads the updated status immediately.
+    await push();
+  }, [push, resetPush]);
+
+  return { push, pushAgain, cancel, canPush, reasonNotReady };
 }
 
 // ---------------------------------------------------------------------------

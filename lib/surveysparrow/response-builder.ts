@@ -49,6 +49,19 @@ export interface PushOptions {
   channels?: PushChannelConfig[];
   /** When non-empty, added to every response's meta_data.tags. */
   tags?: string[];
+  /**
+   * Map from a question's id → its `parent_question_id` (when set on the SS
+   * question). Used to populate `parent_question_id` on answer entries for
+   * follow-up question types like `NPSFeedback`, which SS silently drops if
+   * pushed without the parent reference (symptom: the follow-up question
+   * shows "Not Answered" in the SS UI even though we sent text for it).
+   *
+   * Caller builds this from the survey-store's questions list. Matrix /
+   * group-rating rows aren't included here because those already get
+   * `parent_question_id` set explicitly inside the converter — they're
+   * sub-rows whose qid IS the row id, not the parent.
+   */
+  questionParents?: Map<number, number>;
 }
 
 export interface SSBatchResponseItem {
@@ -120,10 +133,22 @@ function buildBatchItem(
   options?: PushOptions,
 ): SSBatchResponseItem {
   const answers: SSAnswerEntry[] = [];
+  const parentMap = options?.questionParents;
   for (const [qidStr, answer] of Object.entries(response.answers)) {
     const qid = parseInt(qidStr, 10);
     if (!Number.isFinite(qid)) continue;
     for (const entry of convertAnswer(qid, answer, persona)) {
+      // For top-level questions that are themselves children of a parent
+      // (NPSFeedback → NPSScore is the canonical case), populate the
+      // entry's `parent_question_id` from the question metadata. Matrix /
+      // group-rating sub-row entries already have their own
+      // `parent_question_id` set by the converter — we don't overwrite.
+      if (entry.parent_question_id == null) {
+        const parent = parentMap?.get(qid);
+        if (parent != null) {
+          entry.parent_question_id = parent;
+        }
+      }
       answers.push(entry);
     }
   }

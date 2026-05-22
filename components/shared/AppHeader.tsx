@@ -1,7 +1,6 @@
 "use client";
 
 import { ConnectionStatusBar } from "./ConnectionStatusBar";
-import { LogoutButton } from "./LogoutButton";
 import { PlumageWordmark } from "./Wordmark";
 import { ThemeSelector } from "./ThemeSelector";
 import { ThemeToggle } from "./ThemeToggle";
@@ -27,13 +26,14 @@ export function AppHeader() {
           <NavLinks />
         </div>
         {/* Right cluster: connection pills, then a thin border-l divider
-            separating status info from session utilities (theme + sign out). */}
+            separating status info from theme controls. Password auth was
+            removed (Plumage relies on the SS/LLM credentials the user
+            enters on the Setup page, which live in browser memory only). */}
         <div className="flex items-center gap-2">
           <ConnectionStatusBar />
           <div className="ml-1 flex items-center gap-1 border-l pl-3">
             <ThemeSelector />
             <ThemeToggle />
-            <LogoutButton />
           </div>
         </div>
       </div>

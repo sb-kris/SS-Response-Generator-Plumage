@@ -192,6 +192,29 @@ export async function playErrorChime(): Promise<void> {
   });
 }
 
+/** Drawn-out descending "fahhh" — the opposite of the celebration arpeggio.
+ *  Fires when a push completes with failures or when generation fails outright.
+ *  Respects the same `plumage_sound_enabled` preference as the other cues
+ *  (status chimes, celebration) — if status chimes are off, this stays
+ *  silent too. The file (`fahhh_failure.mp3`) is the primary source; the
+ *  synth fallback is a slow descending triangle progression that captures
+ *  the same deflating feeling without sounding harsh. */
+export async function playFailureCue(): Promise<void> {
+  if (!isSoundEnabled()) return;
+  await tryFileThenSynth("/sounds/fahhh_failure.mp3", 0.55, () => {
+    // G4 → E4 → C4 descending — slow, deflating. Triangle wave for a
+    // slightly soft, sigh-y texture rather than a pure sine tone.
+    playNotes(
+      [
+        { freq: 392.0, delay: 0,    duration: 0.55, peak: 0.65, type: "triangle" },
+        { freq: 329.63, delay: 0.32, duration: 0.65, peak: 0.65, type: "triangle" },
+        { freq: 261.63, delay: 0.7,  duration: 0.95, peak: 0.7,  type: "triangle" },
+      ],
+      0.32,
+    );
+  });
+}
+
 /** Subtle, very short click — only fires when the click-sound preference is
  *  on (opt-in, defaults off). Used by the Button primitive. */
 export async function playButtonClick(): Promise<void> {

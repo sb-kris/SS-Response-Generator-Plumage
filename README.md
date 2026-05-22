@@ -14,9 +14,9 @@ Plumage is an internal tool for the SurveySparrow Presales team. It generates pe
 
 Phases 1, 2, 3a, 3b, and 3c shipped. Remaining sub-phases of 3 (per-question, custom variables, system metadata, timing, live cost estimator) plus phases 4–9 are stubbed in [Build Spec v2](./BUILD_SPEC.md) and will land incrementally.
 
-### Phase 1 — Setup & auth
+### Phase 1 — Setup
 
-- Password-protected access via Next.js middleware (rate-limited login, signed HTTP-only cookie).
+- No password gate. Plumage is open-by-URL; access control is delegated to whatever the user-supplied SurveySparrow + LLM API keys can do (and to any host-level protection you put in front of the deployment — Vercel password protection, corporate SSO, etc.).
 - Setup screen with two cards:
   - **SurveySparrow** — region picker (US / EU / UK / AP / CA / IN / ME), optional workspace nickname, API key. Test Connection probes `GET /v3/surveys?limit=1`.
   - **LLM** — provider toggle (Anthropic / OpenAI), API key, separate model selectors for personas vs responses, with hover tooltips covering cost / speed / use case. Test Connection sends a 1-token probe.
@@ -72,7 +72,6 @@ The full DemoProfile schema in [`lib/profiles/types.ts`](lib/profiles/types.ts) 
 - **Zustand** for in-memory client state (no persist middleware — API keys vanish on refresh).
 - **next-themes** for theme switching.
 - **sonner** for toasts.
-- Edge-Runtime-safe HMAC-SHA256 cookie signing via Web Crypto.
 
 ---
 
@@ -87,23 +86,19 @@ The full DemoProfile schema in [`lib/profiles/types.ts`](lib/profiles/types.ts) 
 
 ```bash
 pnpm install
-cp .env.example .env.local
-# edit .env.local — set APP_PASSWORD and AUTH_SECRET
-openssl rand -hex 32   # use this output for AUTH_SECRET
+cp .env.example .env.local   # optional — only needed for MONTHLY_COST_CAP_USD
 pnpm dev
 ```
 
-Open <http://localhost:3000>. You'll be redirected to `/login` — enter your `APP_PASSWORD`, then test both connections on the setup screen.
+Open <http://localhost:3000>. Plumage is open-by-URL; the Setup screen is the first page. Enter your SurveySparrow and LLM API keys there, then test both connections.
 
 ### Environment variables
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
-| `APP_PASSWORD` | ✅ | Shared password for the team. Anyone with this can access Plumage. Rotate when the team changes. |
-| `AUTH_SECRET` | ✅ | 32+ byte random string used to sign the auth cookie. Generate with `openssl rand -hex 32`. |
-| `MONTHLY_COST_CAP_USD` |   | Soft cost-cap warning threshold (default 100). Phase 3+ will surface this in the cost estimator. |
+| `MONTHLY_COST_CAP_USD` |   | Soft cost-cap warning threshold (default 100). Surfaced in the cost estimator. |
 
-API keys (SurveySparrow, Anthropic, OpenAI) are **never** stored as env vars — they are entered in the UI and held in browser memory only. Refresh the tab to clear them.
+API keys (SurveySparrow, Anthropic, OpenAI, etc.) are **never** stored as env vars — they are entered in the UI and held in browser memory only. Refresh the tab to clear them.
 
 ---
 
@@ -111,10 +106,10 @@ API keys (SurveySparrow, Anthropic, OpenAI) are **never** stored as env vars —
 
 1. Push this repo to GitHub.
 2. Import into Vercel — it auto-detects Next.js.
-3. Set `APP_PASSWORD` and `AUTH_SECRET` in the Vercel project's Environment Variables.
-4. Deploy. The middleware runs on the Edge by default — cookie signing uses Web Crypto, so it's compatible.
+3. (Optional) set `MONTHLY_COST_CAP_USD` in the Vercel project's Environment Variables if you want a non-default cap.
+4. Deploy.
 
-> **Caveat:** the login rate-limiter is in-memory per serverless instance. For an internal tool with a strong password, this is fine; if we ever expose Plumage more widely, swap in Upstash Redis (10 lines in `lib/auth/rate-limit.ts`).
+> **Access control.** Plumage has no built-in password gate. If you need to keep the deployment private to your team, use Vercel's password-protected previews / production protection (paid tier), put it behind your corporate SSO, or restrict by IP allowlist at the host level. The app itself trusts whoever loads the URL to bring their own SurveySparrow + LLM keys.
 
 ---
 
@@ -122,14 +117,11 @@ API keys (SurveySparrow, Anthropic, OpenAI) are **never** stored as env vars —
 
 ```
 app/
-  (auth)/login/page.tsx                  # Login form — calls /api/auth/login
-  (app)/layout.tsx                       # Authed layout: header + status bar + nav
+  (app)/layout.tsx                       # App layout: header + status bar + nav
   (app)/page.tsx                         # Setup screen
   (app)/generate/page.tsx                # Wizard: stepper + step content
   (app)/profiles/page.tsx                # Demo Profile management (Phase 3a)
   api/
-    auth/login/route.ts                  # Validates APP_PASSWORD, sets signed cookie
-    auth/logout/route.ts                 # Clears cookie
     surveysparrow/test-connection/route.ts
     surveysparrow/surveys/route.ts       # Walks all pages of /v3/surveys
     surveysparrow/questions/route.ts     # Walks all pages of /v3/questions
@@ -164,17 +156,14 @@ components/
       SectionAnchorRail.tsx              # Sticky left rail with scroll-spy
       CostEstimatorPanel.tsx             # Preliminary placeholder for 3h
   shared/
-    AppHeader.tsx                        # Wordmark, nav links, status bar, theme, sign-out
+    AppHeader.tsx                        # Wordmark, nav links, status bar, theme controls
     NavLinks.tsx                         # Setup / Generate (Generate gated on connections)
     ConnectionStatusBar.tsx              # Two status pills with relative-time freshness
     ApiKeyInput.tsx
-    LogoutButton.tsx                     # Wrapped in AlertDialog confirmation
     ThemeToggle.tsx
     Wordmark.tsx
 
 lib/
-  auth/sign.ts                           # Edge-safe HMAC token sign/verify
-  auth/rate-limit.ts                     # In-memory token bucket for /api/auth/login
   surveysparrow/regions.ts               # Region → API base URL mapping
   surveysparrow/client.ts                # Authenticated fetch wrapper
   surveysparrow/pagination.ts            # `fetchAllPages` walker for paginated v3 endpoints
@@ -192,8 +181,6 @@ lib/
   storage/profiles.ts                    # IndexedDB CRUD + import/export for DemoProfiles
   utils/format-date.ts                   # Relative-date helper
   utils.ts                               # cn() + formatRelativeTime()
-
-middleware.ts                            # Password gate
 
 store/
   setup-store.ts                         # Zustand — credentials in-memory only
@@ -231,11 +218,10 @@ Re-check before each major release.
 
 ## Security model
 
-- **Auth.** Single shared `APP_PASSWORD`. On success, the server signs `<timestamp>.<HMAC-SHA256>` and sets it as an HTTP-only, SameSite=Lax cookie (Secure in production). The middleware verifies this on every non-public request.
-- **Rate limiting.** 5 login attempts per IP per minute (in-memory bucket).
+- **Access control.** Plumage has no built-in password gate. Anyone who can load the deployment URL can use the app — but only as far as the SurveySparrow + LLM API keys they bring will let them. For team-only deployments, gate the host instead (Vercel password protection, corporate SSO, IP allowlist).
 - **API key handling.**
-  - Never written to localStorage, IndexedDB, env files, server logs, or the auth cookie.
-  - Sent to our Next.js API routes per request and used once before being discarded.
+  - Never written to localStorage, IndexedDB, env files, or server logs.
+  - Sent to the Next.js API routes per request and used once before being discarded.
   - All `/api/*` responses set `Cache-Control: no-store` (configured in `next.config.ts`).
 - **CORS.** Same-origin only (Next.js default).
 

@@ -455,20 +455,55 @@ function normalizeRow(raw: unknown, index: number): ExtractedRow {
  *
  * Removes all child questions from the top-level list.
  */
+/**
+ * Some child question types are NOT structural rows of their parent — they
+ * are SEPARATELY-ANSWERABLE follow-up questions keyed off the parent's score.
+ * The canonical example is `NPSFeedback`: it's a child of `NPSScore` (so it
+ * carries `parent_question_id`) but it is its own answerable question that
+ * needs its own answer entry in the push payload, WITH `parent_question_id`
+ * set so SS associates the text with the right branch (promoter / passive /
+ * detractor) of the parent's score.
+ *
+ * Folding these as `rows` of the parent would silently drop them from the
+ * LLM prompt and from the push payload — producing the "Not Answered"
+ * symptom we saw on the NPS follow-up. Instead we keep them at the top
+ * level WITH `parent_question_id` preserved, so the push builder can
+ * include it on the answer entry.
+ */
+function isFollowUpChildType(type: string): boolean {
+  const normalized = type.toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Conservative: only types whose name ends in "feedback" are treated as
+  // follow-ups. Covers NPSFeedback today; same shape would cover any
+  // future *Feedback type (CSATFeedback, OpinionScaleFeedback) without
+  // a code change here.
+  return normalized.endsWith("feedback");
+}
+
 export function buildGroupedQuestions(questions: Question[]): Question[] {
   const childrenByParent = new Map<number, Question[]>();
   for (const q of questions) {
-    if (q.parent_question_id != null) {
+    if (q.parent_question_id != null && !isFollowUpChildType(q.type)) {
+      // Genuine row-style children only — these get folded into the
+      // parent's `rows` array. Follow-up types (NPSFeedback etc.) are
+      // skipped here so they stay at the top level below.
       const arr = childrenByParent.get(q.parent_question_id) ?? [];
       arr.push(q);
       childrenByParent.set(q.parent_question_id, arr);
     }
   }
 
-  if (childrenByParent.size === 0) return questions;
+  if (childrenByParent.size === 0) {
+    // No row-children to fold — but we still need to keep follow-up
+    // children in the result. They survive the no-folding fast-path
+    // naturally because `questions` is returned as-is.
+    return questions;
+  }
 
   return questions
-    .filter((q) => q.parent_question_id == null)
+    // Keep top-level questions PLUS follow-up children (NPSFeedback etc.):
+    // the latter need to be answered separately by the LLM and pushed with
+    // `parent_question_id` set on the answer entry.
+    .filter((q) => q.parent_question_id == null || isFollowUpChildType(q.type))
     .map((q) => {
       const children = childrenByParent.get(q.id);
       if (!children || children.length === 0) return q;

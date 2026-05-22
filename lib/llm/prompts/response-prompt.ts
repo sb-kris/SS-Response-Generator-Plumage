@@ -731,6 +731,14 @@ export function inferAnswerType(
     case "longtext":
     case "shorttext":
     case "comment":
+    // Score-follow-up questions (NPSFeedback / CSATFeedback / CESFeedback):
+    // these are open-text follow-ups to a parent rating question. SS
+    // requires the answer entry to carry `parent_question_id` pointing at
+    // the parent score question — the response-builder reads that from
+    // the question metadata at push time.
+    case "npsfeedback":
+    case "csatfeedback":
+    case "cesfeedback":
       return "text";
     case "number":
     case "numeric":

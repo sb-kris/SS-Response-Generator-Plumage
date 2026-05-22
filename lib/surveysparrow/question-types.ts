@@ -66,6 +66,33 @@ function normalize(input: string): string {
 // Order matters: we match on first alias that's contained in the normalized
 // input, so put longer / more-specific aliases before generic ones.
 const REGISTRY: RegistryEntry[] = [
+  // --- Follow-up questions (text answers tied to a parent's score) ---------
+  // MUST come before the generic "nps" alias below, because "npsfeedback"
+  // also contains "nps" — without this specific entry, NPSFeedback gets
+  // classified as an NPS rating (integer) and the LLM produces a number
+  // for an open-text follow-up. End result is "Not Answered" in the SS UI.
+  {
+    aliases: ["npsfeedback"],
+    label: "NPS follow-up",
+    bucket: "open_text",
+    answerable: true,
+    icon: Type,
+  },
+  {
+    aliases: ["csatfeedback"],
+    label: "CSAT follow-up",
+    bucket: "open_text",
+    answerable: true,
+    icon: Type,
+  },
+  {
+    aliases: ["cesfeedback"],
+    label: "CES follow-up",
+    bucket: "open_text",
+    answerable: true,
+    icon: Type,
+  },
+
   // --- Ratings / scales -----------------------------------------------------
   {
     aliases: ["nps"],
