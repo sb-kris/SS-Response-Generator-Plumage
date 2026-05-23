@@ -100,7 +100,7 @@ function StatusDot({
     default:
       icon = <Circle className="h-3.5 w-3.5" />;
       color = "text-muted-foreground/60";
-      tooltip = `${fullLabel}: not yet tested`;
+      tooltip = `${fullLabel}: not connected yet`;
   }
 
   // Compact summary — pill width matters more than verbosity here. Full

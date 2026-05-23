@@ -80,7 +80,12 @@ export default function RootLayout({
         />
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          // Light mode is the default for first-time visitors (8e). Most
+          // demos and screenshares happen on bright displays, so a light
+          // baseline reads better in front of customers. `enableSystem`
+          // is preserved so a user who prefers dark mode can still flip
+          // via the toggle or via OS-level system theme.
+          defaultTheme="light"
           enableSystem
           disableTransitionOnChange
         >

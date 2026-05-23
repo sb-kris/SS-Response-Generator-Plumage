@@ -15,6 +15,7 @@ import {
 import { useGenerationStore, isDraftDirty } from "@/store/generation-store";
 import { SaveProfileDialog } from "./SaveProfileDialog";
 import { LoadProfileDialog } from "./LoadProfileDialog";
+import { SetupAssistantDialog } from "./SetupAssistantDialog";
 import {
   Save,
   ChevronDown,
@@ -37,6 +38,7 @@ export function ProfileBar() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveAsNew, setSaveAsNew] = useState(false);
   const [loadOpen, setLoadOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // Cmd/Ctrl+S → save profile (intercepts the browser's "save page" prompt).
   useEffect(() => {
@@ -113,6 +115,20 @@ export function ProfileBar() {
             <FolderOpen className="h-3.5 w-3.5" />
             Load
           </Button>
+          {/* AI Setup Assistant — pre-fills context / themes / persona
+              distribution / custom variables tailored to the company +
+              survey. Placed between Load and Save so it's discoverable
+              but visually subordinate to Save (the primary action). */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAssistantOpen(true)}
+            className="gap-1 border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
+            title="Generate a tailored configuration from your company + selected survey"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            AI Setup
+          </Button>
           <Button size="sm" onClick={() => openSave(false)}>
             <Save className="h-3.5 w-3.5" />
             {loadedProfile ? "Save changes" : "Save profile"}
@@ -154,6 +170,7 @@ export function ProfileBar() {
         mode={saveAsNew ? "as-new" : "auto"}
       />
       <LoadProfileDialog open={loadOpen} onOpenChange={setLoadOpen} />
+      <SetupAssistantDialog open={assistantOpen} onOpenChange={setAssistantOpen} />
     </>
   );
 }

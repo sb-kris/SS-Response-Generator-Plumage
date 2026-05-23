@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useResponsesStore } from "@/store/responses-store";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -44,6 +45,8 @@ interface Props {
 export function PushToSurveySparrowCard({ pushHook, onBack, autoStart }: Props) {
   const pushStatus = useResponsesStore((s) => s.pushStatus);
   const pushProgress = useResponsesStore((s) => s.pushProgress);
+  const pushPhase = useResponsesStore((s) => s.pushPhase);
+  const variableStats = useResponsesStore((s) => s.variableStats);
   const responses = useResponsesStore((s) => s.responses);
   const { push, pushAgain, cancel, canPush, reasonNotReady } = pushHook;
 
@@ -156,18 +159,60 @@ export function PushToSurveySparrowCard({ pushHook, onBack, autoStart }: Props) 
         </div>
         <CardDescription>
           {isRunning ? (
-            <span className="flex flex-wrap items-baseline gap-x-2">
-              <RotatingLoadingMessage pool={PUSH_MESSAGES} />
-              <span className="text-xs opacity-70">
-                {pushProgress.pushed + pushProgress.failed} of {pushProgress.total} sent — up to 3 in parallel.
+            pushPhase === "checking_variables" ? (
+              <span className="text-xs">Checking your survey&apos;s existing variables…</span>
+            ) : pushPhase === "creating_variables" ? (
+              <span className="text-xs">
+                Creating missing variables in SurveySparrow…
               </span>
-            </span>
+            ) : (
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                <RotatingLoadingMessage pool={PUSH_MESSAGES} />
+                <span className="text-xs opacity-70">
+                  {pushProgress.pushed + pushProgress.failed} of {pushProgress.total} sent — up to 3 in parallel.
+                </span>
+              </span>
+            )
           ) : (
             `${pushedCount.toLocaleString()} pushed · ${pushProgress.failed} failed`
           )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {/* Variable readiness pill — only rendered once a stats snapshot
+            exists. Surfaces what happened in the pre-push step:
+              "Variables ready: 5 existing, 2 created" (success)
+              "Variable creation failed for customer_tier…" (failure)
+            Stays visible after the push completes so the SE can audit. */}
+        {variableStats && (
+          <div
+            className={cn(
+              "rounded-md border px-3 py-2 text-xs",
+              variableStats.failedNames.length > 0 || variableStats.errorMessage
+                ? "border-destructive/40 bg-destructive/5 text-destructive-foreground"
+                : "border-border bg-muted/40 text-muted-foreground",
+            )}
+          >
+            {variableStats.failedNames.length > 0 || variableStats.errorMessage ? (
+              <>
+                <span className="font-medium">Variable check failed.</span>{" "}
+                {variableStats.errorMessage ?? "Could not create one or more variables."}
+                {variableStats.failedNames.length > 0 && (
+                  <span> Affected: {variableStats.failedNames.slice(0, 3).join(", ")}{variableStats.failedNames.length > 3 ? "…" : ""}.</span>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-foreground">
+                  Variables ready:
+                </span>{" "}
+                {variableStats.existing} existing
+                {variableStats.created > 0 && `, ${variableStats.created} created`}.
+              </>
+            )}
+          </div>
+        )}
+
         {/* Progress bar */}
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between text-sm">

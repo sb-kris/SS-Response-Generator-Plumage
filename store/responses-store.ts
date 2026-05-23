@@ -33,6 +33,30 @@ export type GenerationStatus =
   | "interrupted";
 export type PushStatus = "idle" | "running" | "complete";
 
+/**
+ * Phase 8c — sub-phase during a running push. The hook walks through
+ * these in order so the UI can show:
+ *   "Checking your survey's variables…" → "Creating 3 missing variables…"
+ *   → standard batch-progress copy ("100 of 500 sent").
+ */
+export type PushPhase = "checking_variables" | "creating_variables" | "pushing_responses";
+
+/**
+ * Outcome of the pre-push variable readiness check. Persisted in the
+ * store so the push card can still show "Variables ready: 5 existing,
+ * 2 created" after the push completes.
+ */
+export interface VariableReadinessStats {
+  /** How many variables already existed in the SS workspace. */
+  existing: number;
+  /** How many we just created. */
+  created: number;
+  /** Variable names that failed to create (only populated on failure). */
+  failedNames: string[];
+  /** Human-readable error from SS if creation didn't succeed. */
+  errorMessage?: string;
+}
+
 export interface DebugEntry {
   time: number;
   kind:
@@ -79,6 +103,18 @@ interface ResponsesStore {
   // Phase 5c — push flow
   pushStatus: PushStatus;
   pushProgress: PushProgress;
+  /**
+   * Phase 8c — sub-phase during pushStatus === "running". The push hook
+   * walks through:
+   *   "checking_variables"  → fetching SS variables to see what exists
+   *   "creating_variables"  → POSTing /v3/variables/batch for missing ones
+   *   "pushing_responses"   → the response batch loop (existing behaviour)
+   * Null when pushStatus is "idle" or "complete".
+   */
+  pushPhase: PushPhase | null;
+  /** Snapshot of the pre-push variable check so the card can display
+   *  "5 existing, 2 created" both during and after the push. */
+  variableStats: VariableReadinessStats | null;
   /** When true, the Generate step jumps straight to the push card after
    *  generation finishes instead of showing the preview table. */
   skipPreview: boolean;
@@ -101,6 +137,10 @@ interface ResponsesStore {
   // Phase 5c — push actions
   setSkipPreview: (v: boolean) => void;
   startPush: (total: number) => void;
+  /** Phase 8c — mark which sub-phase the running push is in. */
+  setPushPhase: (phase: PushPhase | null) => void;
+  /** Phase 8c — store the pre-push variable readiness counts. */
+  setVariableStats: (stats: VariableReadinessStats | null) => void;
   recordPushResult: (
     responseId: string,
     success: boolean,
@@ -137,6 +177,8 @@ export const useResponsesStore = create<ResponsesStore>()(
       sourceConfigHash: null,
       pushStatus: "idle",
       pushProgress: idlePushProgress,
+      pushPhase: null,
+      variableStats: null,
       skipPreview: false,
       debugLog: [],
 
@@ -225,6 +267,8 @@ export const useResponsesStore = create<ResponsesStore>()(
           sourceConfigHash: null,
           pushStatus: "idle",
           pushProgress: idlePushProgress,
+          pushPhase: null,
+          variableStats: null,
         }),
 
       // Phase 5c
@@ -234,7 +278,14 @@ export const useResponsesStore = create<ResponsesStore>()(
         set({
           pushStatus: "running",
           pushProgress: { pushed: 0, failed: 0, total },
+          // 8c: clear last run's phase / stats; the hook re-sets these.
+          pushPhase: null,
+          variableStats: null,
         }),
+
+      // 8c: setters used by usePushResponses to walk through phases.
+      setPushPhase: (phase) => set({ pushPhase: phase }),
+      setVariableStats: (stats) => set({ variableStats: stats }),
 
       recordPushResult: (responseId, success, pushedResponseId, errorMessage) =>
         set((s) => {
@@ -257,12 +308,14 @@ export const useResponsesStore = create<ResponsesStore>()(
           return { responses, pushProgress };
         }),
 
-      finishPush: () => set({ pushStatus: "complete" }),
+      finishPush: () => set({ pushStatus: "complete", pushPhase: null }),
 
       resetPush: () =>
         set((s) => ({
           pushStatus: "idle",
           pushProgress: idlePushProgress,
+          pushPhase: null,
+          variableStats: null,
           responses: s.responses.map((r) => ({
             ...r,
             status: "generated" as ResponseStatus,
@@ -304,6 +357,8 @@ export const useResponsesStore = create<ResponsesStore>()(
         state.progress = idleProgress;
         state.pushStatus = "idle";
         state.pushProgress = idlePushProgress;
+        state.pushPhase = null;
+        state.variableStats = null;
         state.debugLog = [];
       },
       version: 2,

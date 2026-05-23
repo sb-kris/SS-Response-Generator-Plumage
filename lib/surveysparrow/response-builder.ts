@@ -50,6 +50,18 @@ export interface PushOptions {
   /** When non-empty, added to every response's meta_data.tags. */
   tags?: string[];
   /**
+   * Map from question id → `{min, max}` of the question's actual scale.
+   * Used to clamp out-of-range rating / opinion-scale / slider values
+   * BEFORE we ship them to SurveySparrow. SS rejects out-of-range values
+   * with a generic "Invalid value passed or missing values in payload"
+   * error — and the LLM occasionally drifts past the scale max when the
+   * validator's resolved scale is wider than SS's actual config (e.g.
+   * "passive NPS 7-8" applied to a 0-7 question yields 8 = invalid).
+   * Clamping defensively at push time means even partial validator misses
+   * don't surface as SS rejects.
+   */
+  questionScales?: Map<number, { min: number; max: number }>;
+  /**
    * Map from a question's id → its `parent_question_id` (when set on the SS
    * question). Used to populate `parent_question_id` on answer entries for
    * follow-up question types like `NPSFeedback`, which SS silently drops if
@@ -134,6 +146,7 @@ function buildBatchItem(
 ): SSBatchResponseItem {
   const answers: SSAnswerEntry[] = [];
   const parentMap = options?.questionParents;
+  const scalesMap = options?.questionScales;
   for (const [qidStr, answer] of Object.entries(response.answers)) {
     const qid = parseInt(qidStr, 10);
     if (!Number.isFinite(qid)) continue;
@@ -149,6 +162,27 @@ function buildBatchItem(
           entry.parent_question_id = parent;
         }
       }
+
+      // Defensive: clamp numeric answers to the question's actual scale.
+      // SS rejects any value outside the configured min/max with a
+      // generic "Invalid value passed or missing values in payload"
+      // error. The validator already enforces this at generation time,
+      // but its resolved scale may be wider than SS's actual config
+      // (e.g. when the question type is "OpinionScale" but the SS
+      // workspace has it configured 0-7 rather than 0-10). Clamping here
+      // is the last-mile guarantee that the payload stays within range.
+      if (
+        scalesMap &&
+        typeof entry.answer === "number" &&
+        !Array.isArray(entry.answer)
+      ) {
+        const scale = scalesMap.get(qid);
+        if (scale) {
+          if (entry.answer < scale.min) entry.answer = scale.min;
+          else if (entry.answer > scale.max) entry.answer = scale.max;
+        }
+      }
+
       answers.push(entry);
     }
   }

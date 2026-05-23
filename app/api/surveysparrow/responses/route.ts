@@ -118,6 +118,11 @@ export async function POST(req: NextRequest) {
         // Up to 3 unique failure reasons — the UI shows these in the
         // partial-failure alert so the SE can debug without opening logs.
         failureReasons: statusResult.failureReasons,
+        // Per-position failure detail. Each entry's `index` matches the
+        // ordering of the responses we POSTed, so the client can mark
+        // the EXACT response that failed (replaces the old broken
+        // "last N of batch" heuristic).
+        failureIndexes: statusResult.failureIndexes,
         // Server-side echo of the terminal status SS reported (e.g.
         // "completed", "failed", "partially_completed"). Useful when
         // "completed" hides individual failures.
@@ -170,6 +175,17 @@ interface InterpretedStatus {
   /** Up to 3 unique human-readable failure reasons gleaned from the
    *  per-response items. Surfaced to the UI for debugging. */
   failureReasons: string[];
+  /**
+   * Per-response failure detail — preserves WHICH index in the submitted
+   * payload failed and the message SS gave for it. The order of the
+   * SS `data[]` array matches the order we POSTed, so positional mapping
+   * is exact.
+   *
+   * The previous version dropped this on the floor and the client
+   * marked the LAST N entries of each batch as failed — misleading the
+   * user about which personas needed retrying. Now we pass it through.
+   */
+  failureIndexes: Array<{ index: number; message: string }>;
   /** Raw terminal status string SS returned ("COMPLETED", "FAILED", etc.).
    *  Empty string when undetermined. */
   terminalStatus: string;
@@ -225,6 +241,7 @@ function interpretStatusResponse(
     processed: 0,
     failed: 0,
     failureReasons: [],
+    failureIndexes: [],
     terminalStatus: "",
   };
   if (!data || typeof data !== "object") return EMPTY;
@@ -260,8 +277,14 @@ function interpretStatusResponse(
   let processed = 0;
   let failed = 0;
   const reasonsSet = new Set<string>();
+  // Per-response positional failure tracking — the index into `items`
+  // is the same as the index in our submission. Surfaced to the client
+  // so it can mark the CORRECT response as failed instead of guessing
+  // "last N of batch" (the old broken behaviour).
+  const failureIndexes: Array<{ index: number; message: string }> = [];
 
-  for (const item of items) {
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx];
     if (!item || typeof item !== "object") continue;
     const it = item as Record<string, unknown>;
     const itStatus =
@@ -273,6 +296,7 @@ function interpretStatusResponse(
         firstString(it.message, it.error, it.reason, it.error_message) ??
         "Unspecified failure";
       reasonsSet.add(msg);
+      failureIndexes.push({ index: idx, message: msg });
     } else if (
       itStatus === "success" ||
       itStatus === "completed" ||
@@ -300,6 +324,7 @@ function interpretStatusResponse(
     processed,
     failed,
     failureReasons: Array.from(reasonsSet).slice(0, 3),
+    failureIndexes,
     terminalStatus: rawStatus,
   };
 }

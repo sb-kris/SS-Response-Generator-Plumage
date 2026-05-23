@@ -234,14 +234,18 @@ const PROVIDER_META: Record<LLMProvider, ProviderMeta> = {
 
 export const MODELS: ModelOption[] = [
   // ─── Anthropic ─────────────────────────────────────────────────────────
+  // Cost-first defaults (8e): Haiku 4.5 is the recommended default for
+  // BOTH persona synthesis and response generation. Sonnet/Opus stay
+  // available but neither is the default — they're positioned as
+  // premium upgrades for executive demos or unusually nuanced surveys.
   {
     id: "claude-haiku-4-5-20251001",
     provider: "anthropic",
     label: "Claude Haiku 4.5",
-    tagline: "Fast & cheapest Anthropic",
+    tagline: "Recommended low-cost default",
     tooltip:
-      "Anthropic's fastest, cheapest tier. Best for: persona synthesis and straightforward surveys. Recommended default for personas on Anthropic.",
-    recommendedFor: ["personas"],
+      "Recommended low-cost Anthropic default for both personas and responses. Fast enough for bulk demo generation and good for most SE workflows. Upgrade only when a demo needs more nuance than cost savings.",
+    recommendedFor: ["personas", "responses"],
     mode: "balanced",
     qualityTier: "good",
     costTier: "medium",
@@ -251,16 +255,17 @@ export const MODELS: ModelOption[] = [
     contextWindow: 200_000,
     maxOutputTokens: 8_192,
     defaultForPersona: true,
+    defaultForResponse: true,
   },
   {
     id: "claude-sonnet-4-6",
     provider: "anthropic",
     label: "Claude Sonnet 4.6",
-    tagline: "Balanced — recommended for responses",
+    tagline: "Premium — executive demos",
     tooltip:
-      "Best balance of nuance and cost. Recommended for response generation, especially for nuanced multilingual surveys or executive-facing demos.",
-    recommendedFor: ["responses"],
-    mode: "balanced",
+      "Premium quality. Pick when the demo lands in front of executives, the survey is unusually nuanced or multilingual, and quality matters more than cost. Otherwise Haiku 4.5 is the cheaper recommended path.",
+    recommendedFor: [],
+    mode: "premium",
     qualityTier: "strong",
     costTier: "medium",
     speedTier: "fast",
@@ -268,15 +273,14 @@ export const MODELS: ModelOption[] = [
     supportsJson: true,
     contextWindow: 200_000,
     maxOutputTokens: 8_192,
-    defaultForResponse: true,
   },
   {
     id: "claude-opus-4-7",
     provider: "anthropic",
     label: "Claude Opus 4.7",
-    tagline: "Highest quality",
+    tagline: "Highest quality · rarely needed",
     tooltip:
-      "Premium tier. Use only when responses need exceptional nuance — usually overkill for bulk demo data.",
+      "Premium tier. Almost never the right call for demo data — pick only when responses need exceptional nuance (e.g. a high-stakes regulated-industry pitch). Significantly more expensive than Haiku 4.5.",
     recommendedFor: [],
     mode: "premium",
     qualityTier: "premium",
@@ -293,9 +297,9 @@ export const MODELS: ModelOption[] = [
     id: "gpt-4o-mini",
     provider: "openai",
     label: "GPT-4o Mini",
-    tagline: "Cheap OpenAI workhorse",
+    tagline: "Recommended low-cost persona model",
     tooltip:
-      "OpenAI's classic cheap workhorse. Comparable to Haiku — good fallback if Anthropic is rate-limited. Solid for personas.",
+      "Recommended low-cost OpenAI persona model. Good for fast profile generation; classic cheap workhorse. Comparable to Haiku — solid fallback if Anthropic is rate-limited.",
     recommendedFor: ["personas"],
     mode: "economy",
     qualityTier: "good",
@@ -311,11 +315,11 @@ export const MODELS: ModelOption[] = [
     id: "gpt-4o",
     provider: "openai",
     label: "GPT-4o",
-    tagline: "Flagship general-purpose",
+    tagline: "Premium — executive demos",
     tooltip:
-      "Comparable to Sonnet for response generation. Reliable for nuanced answers.",
-    recommendedFor: ["responses"],
-    mode: "balanced",
+      "Premium quality, higher cost. Comparable to Sonnet — pick when responses need extra nuance for an executive demo. Otherwise GPT-4.1 Mini is the cheaper recommended path.",
+    recommendedFor: [],
+    mode: "premium",
     qualityTier: "strong",
     costTier: "medium",
     speedTier: "fast",
@@ -323,15 +327,14 @@ export const MODELS: ModelOption[] = [
     supportsJson: true,
     contextWindow: 128_000,
     maxOutputTokens: 16_384,
-    defaultForResponse: true,
   },
   {
     id: "gpt-4.1-mini",
     provider: "openai",
     label: "GPT-4.1 Mini",
-    tagline: "Cheap, better instruction following",
+    tagline: "Recommended low-cost response model",
     tooltip:
-      "Cheaper than GPT-4o with stronger instruction following — a good response model when cost matters.",
+      "Recommended OpenAI response model. Better response quality while still keeping cost controlled — cheaper than GPT-4o with stronger instruction following. Good default for most SE workflows.",
     recommendedFor: ["responses"],
     mode: "economy",
     qualityTier: "good",
@@ -341,6 +344,7 @@ export const MODELS: ModelOption[] = [
     supportsJson: true,
     contextWindow: 1_000_000,
     maxOutputTokens: 32_768,
+    defaultForResponse: true,
   },
   {
     id: "gpt-4.1-nano",

@@ -601,14 +601,23 @@ export function CustomVariablesSection() {
 
           <Separator />
 
-          {/* Sync reminder — only when at least one variable is configured */}
+          {/* Sync reminder — only when at least one variable is configured.
+              Copy updated 8d: Plumage now auto-creates missing AI variables
+              before pushing, so the old "you must manually create them in
+              SS" warning was misleading. */}
           {variables.length > 0 && (
             <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs text-warning">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                Make sure these variables exist in your SurveySparrow survey
-                before pushing responses. Variables not configured in SS will be
-                silently dropped from the response.
+                Plumage will check these variables before pushing responses.
+                Existing SurveySparrow variables are reused; any missing
+                AI-suggested variables are created automatically via{" "}
+                <code className="rounded bg-warning/20 px-1 font-mono text-[10px]">
+                  /v3/variables/batch
+                </code>{" "}
+                first. Only variable <em>definitions</em> are created in SS —
+                the suggested option values stay inside Plumage and drive
+                realistic response payloads.
               </span>
             </div>
           )}

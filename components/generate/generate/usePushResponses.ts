@@ -8,6 +8,7 @@ import { useSurveyStore } from "@/store/survey-store";
 import { useGenerationStore } from "@/store/generation-store";
 import { loggedFetch } from "@/store/api-logs-store";
 import { buildSSBatchPayload } from "@/lib/surveysparrow/response-builder";
+import { ensureSurveyVariablesExist } from "@/lib/surveysparrow/ensure-variables";
 
 // Phase 5c — orchestrates pushing generated responses to SurveySparrow.
 //
@@ -89,6 +90,89 @@ export function usePushResponses(): PushResponsesHookState {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    // ------------------------------------------------------------------
+    // Phase 8c — Pre-push: ensure every custom variable in the draft
+    // already exists in the SurveySparrow workspace. If any are missing
+    // (typically when the AI Setup Assistant just suggested them), we
+    // create them via POST /v3/variables/batch BEFORE the response push,
+    // otherwise SS rejects the payload with a generic "variable not
+    // found" error that surfaced as "survey generation failed" in the
+    // earlier flow.
+    //
+    // The helper returns a structured result with ok + counts + error
+    // message; we surface those via the store so the push card can
+    // show "Checking variables…" → "Creating 3 missing variables…" →
+    // "Variables ready: 5 existing, 2 created" inline.
+    // ------------------------------------------------------------------
+    const setPushPhase = useResponsesStore.getState().setPushPhase;
+    const setVariableStats = useResponsesStore.getState().setVariableStats;
+
+    const draftCustomVariables = useGenerationStore.getState().draft.customVariables;
+    if (draftCustomVariables.length > 0) {
+      setPushPhase("checking_variables");
+      appendDebugLog({
+        time: Date.now(),
+        kind: "batch_start",
+        label: `Checking ${draftCustomVariables.length} draft variable${draftCustomVariables.length === 1 ? "" : "s"} against SurveySparrow`,
+      });
+
+      const readiness = await ensureSurveyVariablesExist({
+        region: ss.region,
+        apiKey: ss.apiKey,
+        surveyId,
+        variables: draftCustomVariables,
+        signal: ctrl.signal,
+        onProgress: (event) => {
+          if (event.kind === "creating") {
+            setPushPhase("creating_variables");
+            setVariableStats({
+              existing: 0,
+              created: 0,
+              failedNames: [],
+            });
+          }
+        },
+      });
+
+      setVariableStats({
+        existing: readiness.existingCount,
+        created: readiness.createdCount,
+        failedNames: readiness.failedNames,
+        errorMessage: readiness.errorMessage,
+      });
+
+      if (!readiness.ok) {
+        const errLabel = readiness.errorMessage ?? "Variable readiness check failed";
+        appendDebugLog({
+          time: Date.now(),
+          kind: "batch_fail",
+          label: `Variable readiness — ${readiness.failedNames.length} failed`,
+          detail:
+            readiness.failedNames.length > 0
+              ? `${errLabel} · names: ${readiness.failedNames.slice(0, 3).join(", ")}${readiness.failedNames.length > 3 ? "…" : ""}`
+              : errLabel,
+        });
+        // Mark every response as failed with the variable error so the
+        // user sees specifics in the failed-list, then close out the
+        // push without trying to ship batches that would only re-fail.
+        for (const response of toPush) {
+          recordPushResult(response.id, false, undefined, `Variable not ready: ${errLabel}`);
+        }
+        finishPush();
+        abortRef.current = null;
+        return;
+      }
+
+      appendDebugLog({
+        time: Date.now(),
+        kind: "batch_ok",
+        label: `Variables ready · ${readiness.existingCount} existing${readiness.createdCount > 0 ? `, ${readiness.createdCount} created` : ""}`,
+      });
+    }
+
+    setPushPhase("pushing_responses");
+    // ------------------------------------------------------------------
+
     // Build a question-id → parent-question-id lookup for the push payload.
     // Read fresh from the survey store at push time so we always get the
     // current survey's question metadata, not a stale closure value.
@@ -97,9 +181,23 @@ export function usePushResponses(): PushResponsesHookState {
     // (rendering "Not Answered" in the response viewer).
     const surveyQuestions = useSurveyStore.getState().questions.data ?? [];
     const questionParents = new Map<number, number>();
+    const questionScales = new Map<number, { min: number; max: number }>();
+    // `extractQuestionDisplay` is already exported and uses the same
+    // `extractScale` probe internally — its `.scale` field is exactly
+    // what we need without exporting the internal helper.
+    const { extractQuestionDisplay } = await import("@/lib/surveysparrow/types");
     for (const q of surveyQuestions) {
       if (typeof q.parent_question_id === "number") {
         questionParents.set(q.id, q.parent_question_id);
+      }
+      // Pull the question's actual numeric scale (if any) so we can
+      // clamp rating / opinion-scale / slider answers before push. Only
+      // populates when SS surfaces a real min/max — questions without a
+      // resolvable scale don't get clamped (response-builder treats
+      // them as "unknown scale = trust the value").
+      const scale = extractQuestionDisplay(q).scale;
+      if (scale) {
+        questionScales.set(q.id, scale);
       }
     }
 
@@ -142,6 +240,7 @@ export function usePushResponses(): PushResponsesHookState {
             : [],
           tags,
           questionParents,
+          questionScales,
         },
       );
 
@@ -161,6 +260,8 @@ export function usePushResponses(): PushResponsesHookState {
         timedOut?: boolean;
         /** Up to 3 unique human-readable reasons from per-response items. */
         failureReasons?: string[];
+        /** Positional failure detail — index in batch + message. */
+        failureIndexes?: Array<{ index: number; message: string }>;
         /** Raw SS-side terminal status — surfaced for debugging. */
         terminalStatus?: string;
       };
@@ -225,19 +326,44 @@ export function usePushResponses(): PushResponsesHookState {
         detail: detailParts.length > 0 ? detailParts.join(" · ") : undefined,
       });
 
-      // SS doesn't report WHICH responses failed in a batch — mark the
-      // last `failedCount` entries as failed (order matches submission).
-      // When SS gave us reason strings, store the first one against each
-      // failed response so the UI can surface specifics (e.g. "Channel
-      // not found") rather than a generic "Failed in batch".
-      const primaryReason = result.failureReasons?.[0] ?? "Failed in batch";
+      // SS reports failures POSITIONALLY — `result.failureIndexes[i].index`
+      // is the position in the batch (and in the SS response array) that
+      // failed, plus the per-response message. The previous version
+      // ignored this and marked the LAST N entries as failed, which
+      // misled the UI about which personas needed retrying. Now we map
+      // the exact position back to its responseId.
+      //
+      // Two fallback paths preserved for robustness:
+      //   1. If failureIndexes is missing (older route, or unknown shape)
+      //      we fall back to "first N succeed, last N fail" — better than
+      //      crashing, even if imprecise.
+      //   2. If a failure exists but we don't have a message for that
+      //      index, use the first failureReason as a generic fallback.
+      const fallbackReason = result.failureReasons?.[0] ?? "Failed in batch";
+      const failureByIndex = new Map<number, string>();
+      if (Array.isArray(result.failureIndexes)) {
+        for (const f of result.failureIndexes) {
+          failureByIndex.set(f.index, f.message || fallbackReason);
+        }
+      }
+      const hasPositional = failureByIndex.size > 0;
+
       for (let j = 0; j < batch.length; j++) {
-        const isSuccess = j < successCount;
+        let isSuccess: boolean;
+        let reason: string | undefined;
+        if (hasPositional) {
+          const failMsg = failureByIndex.get(j);
+          isSuccess = failMsg === undefined;
+          reason = failMsg;
+        } else {
+          isSuccess = j < successCount;
+          reason = isSuccess ? undefined : fallbackReason;
+        }
         recordPushResult(
           batch[j]!.responseId,
           isSuccess,
           undefined,
-          isSuccess ? undefined : primaryReason,
+          reason,
         );
       }
     }

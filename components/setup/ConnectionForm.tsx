@@ -555,5 +555,9 @@ function ConnectionBadge({ status }: { status: "idle" | "validating" | "ok" | "e
       </Badge>
     );
   }
-  return <Badge variant="outline">Not tested</Badge>;
+  // Idle = no test attempted yet → "Not connected" reads as a status, not
+  // a product-quality claim. The old "Not tested" label was misread by
+  // SEs as "this feature is untested" rather than "this auth hasn't been
+  // validated yet."
+  return <Badge variant="outline">Not connected</Badge>;
 }

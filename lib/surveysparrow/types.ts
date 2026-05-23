@@ -218,15 +218,28 @@ function extractScale(q: Question): QuestionDisplay["scale"] | undefined {
   if (typeof props.min === "number" && typeof props.max === "number") {
     return { min: props.min, max: props.max };
   }
-  // OpinionScale / Slider: SS stores the range as `start` and `start+step`.
+  // OpinionScale / Slider: SS's `data.step` field IS the MAX value of the
+  // scale, not an offset added to `start`. Buttons are start, start+1, …,
+  // step. (Earlier this file claimed `start + step` was max — which over-
+  // counted by `start` whenever start > 0. Verified May 2026 against
+  // question 1004018813 where start=1, step=7 and the SS UI rendered
+  // buttons 1-7; pushing rating=8 triggered SS's "Invalid value passed"
+  // rejection because the scale max is 7, not 8.)
   // (`data.min` / `data.max` are template strings like "builder.opinion_scale.min"
-  //  — never numbers — so we probe `start`+`step` first and only fall back to
-  //  numeric `min`/`max` when both are genuine numbers that differ.)
+  //  — never numbers — so we probe `start`/`step` first and only fall back
+  //  to numeric `min`/`max` when both are genuine numbers that differ.)
   const data = props.data;
   if (data && typeof data === "object") {
     const d = data as Record<string, unknown>;
     if (typeof d.start === "number" && typeof d.step === "number" && d.step > 0) {
-      return { min: d.start, max: d.start + d.step };
+      const min = d.start;
+      const max = d.step;
+      // Safety: if the data is somehow inverted (max <= min) fall through
+      // to the wider numeric probes below rather than returning a
+      // degenerate range.
+      if (max > min) {
+        return { min, max };
+      }
     }
     if (typeof d.min === "number" && typeof d.max === "number" && d.min !== d.max) {
       return { min: d.min, max: d.max };

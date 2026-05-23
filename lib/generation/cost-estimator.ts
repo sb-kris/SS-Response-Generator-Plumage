@@ -404,3 +404,139 @@ export function formatTokens(n: number): string {
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return String(n);
 }
+
+// ---------------------------------------------------------------------------
+// AI Setup Assistant cost estimate (Phase 8e)
+// ---------------------------------------------------------------------------
+//
+// The assistant adds an LLM call BEFORE persona/response generation. The
+// main `estimateCost()` above doesn't cover it because it's a one-shot
+// call (not per-persona) and uses the response model — but its cost is
+// still meaningful enough to surface in the dialog.
+//
+// We use a coarse token model that mirrors the actual prompt builder:
+//   - system prompt overhead (~700 tokens)
+//   - company block (~50–300 tokens, capped)
+//   - survey block (~80 tokens per question, capped at 30 questions)
+//   - existing-draft block (~300 tokens if any)
+//   - SS workspace variables block (~40 tokens per variable, capped at 30)
+//   - directives + research instructions (~250 tokens)
+// Output is bounded by the route's 4000-token max but typically ~2000–4000
+// for an enriched response. We don't try to second-guess web-search token
+// usage — Anthropic bundles search results into the input side as
+// invisible context, which inflates roughly 1.5–2× when active.
+//
+// 15% buffer matches the pipeline estimator's variability allowance.
+
+export interface AiSetupCostInput {
+  modelId: string;
+  /** Provider that owns this model. Drives the web-search multiplier when
+   *  provider === "anthropic" (the only provider currently wired for
+   *  in-call web search). */
+  provider: LLMProvider;
+  companyNameLen?: number;
+  notesLen?: number;
+  existingUseCaseLen?: number;
+  surveyName?: string;
+  surveyType?: string;
+  questionCount: number;
+  /** Average choice count per question — for a rough "how big is the
+   *  survey block" guess. Default 4. */
+  averageChoicesPerQuestion?: number;
+  /** SS workspace variables we pre-fetched. The LLM is asked to enrich
+   *  all of them, so they're priced in. */
+  ssVariableCount: number;
+  /** True when the model is going to do web_search inside the API call
+   *  (Anthropic only today). Inflates input-token estimate by 1.6×. */
+  hasWebSearch?: boolean;
+}
+
+export interface AiSetupCostEstimate {
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** USD; null when no pricing entry exists for the model. */
+  estimatedCost: number | null;
+  pricingUnavailable: boolean;
+  /** Human-readable note for the UI ("Pricing unavailable for foo-model"). */
+  warning?: string;
+}
+
+const SETUP_BUFFER = 1.15;
+const SETUP_SYSTEM_OVERHEAD = 700;
+const SETUP_DIRECTIVES = 250;
+const SETUP_SS_VAR_INSTRUCTIONS = 150;
+const SETUP_OUTPUT_BASE = 1500;
+const SETUP_OUTPUT_PER_SS_VAR = 150;
+const SETUP_OUTPUT_AI_VARS = 800;
+const SETUP_WEB_SEARCH_INPUT_MULT = 1.6;
+
+export function estimateAiSetupCost(input: AiSetupCostInput): AiSetupCostEstimate {
+  const avgChoices = Math.max(0, input.averageChoicesPerQuestion ?? 4);
+  const cappedQuestions = Math.min(input.questionCount, 30);
+  const cappedSSVars = Math.min(input.ssVariableCount, 30);
+
+  // ---- Input-token estimate ----
+  let inputTokens = SETUP_SYSTEM_OVERHEAD + SETUP_DIRECTIVES;
+  // Company block: name + website + sentiment + notes (truncated by prompt).
+  inputTokens +=
+    20 +
+    Math.min(input.companyNameLen ?? 0, 80) / 4 +
+    Math.min(input.notesLen ?? 0, 500) / 4;
+  // Survey block: per-question line + choices.
+  inputTokens += 30 + cappedQuestions * (25 + avgChoices * 8);
+  // Existing draft block.
+  if (input.existingUseCaseLen && input.existingUseCaseLen > 0) {
+    inputTokens += 80 + Math.min(input.existingUseCaseLen, 800) / 4;
+  }
+  // SS variables instructions + per-variable line.
+  if (cappedSSVars > 0) {
+    inputTokens += SETUP_SS_VAR_INSTRUCTIONS + cappedSSVars * 30;
+  }
+  // Anthropic web-search inflates input tokens with search-result context.
+  if (input.hasWebSearch) {
+    inputTokens = Math.round(inputTokens * SETUP_WEB_SEARCH_INPUT_MULT);
+  }
+  inputTokens = Math.round(inputTokens);
+
+  // ---- Output-token estimate ----
+  // Output scales with the number of variables to enrich + a small base.
+  let outputTokens = SETUP_OUTPUT_BASE + cappedSSVars * SETUP_OUTPUT_PER_SS_VAR + SETUP_OUTPUT_AI_VARS;
+  // Bound by the route's hard max (4000 tokens).
+  outputTokens = Math.min(outputTokens, 4_000);
+  outputTokens = Math.round(outputTokens);
+
+  // ---- Cost ----
+  const pricing = MODEL_PRICING[input.modelId];
+  if (!pricing) {
+    return {
+      modelId: input.modelId,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      estimatedCost: null,
+      pricingUnavailable: true,
+      warning: `Pricing unavailable for ${input.modelId}.`,
+    };
+  }
+  const inputCost = (inputTokens / 1_000_000) * pricing.inputPerMTokUsd;
+  const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMTokUsd;
+  const total = (inputCost + outputCost) * SETUP_BUFFER;
+  return {
+    modelId: input.modelId,
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCost: total,
+    pricingUnavailable: false,
+  };
+}
+
+/** Compact USD formatter used by the AI Setup dialog. Renders very small
+ *  amounts as "<$0.01" to avoid showing rounding artefacts ($0.00). */
+export function formatAiSetupCost(usd: number): string {
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
+}
