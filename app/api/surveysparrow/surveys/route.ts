@@ -49,12 +49,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Plumage only generates text-style responses. Conversational surveys (chat-bot
-  // style) collect data through a different flow, so we drop them here rather
-  // than show users an option that won't work end-to-end.
-  const filtered = result.data.filter(
-    (s) => (s.survey_type ?? "").toLowerCase() !== "conversational",
-  );
+  // Plumage only generates text-style synthetic responses. A few SS survey
+  // types can't accept demo data through the v3/responses/batch flow:
+  //
+  //   - Conversational  — chat-bot UI, different ingest path
+  //   - SocialListening — pulls from external social feeds; not user-answerable
+  //
+  // We drop both here (case-insensitive, tolerant of casing variants like
+  // "social_listening", "Social Listening", "socialListening") rather than
+  // show users an option that would fail at push time.
+  const filtered = result.data.filter((s) => !isUnsupportedSurveyType(s.survey_type));
   const hiddenCount = result.data.length - filtered.length;
 
   return NextResponse.json({
@@ -65,4 +69,25 @@ export async function POST(req: NextRequest) {
     hiddenCount,
     truncated: Boolean(result.truncated),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Survey-type filter
+// ---------------------------------------------------------------------------
+//
+// Case + separator normalisation: SS surfaces survey_type in several
+// shapes across workspaces — "Conversational", "SocialListening",
+// "social_listening", "Social Listening", "socialListening". Stripping
+// non-alphanumerics + lowercasing collapses all those to a single
+// canonical form we can compare with a small denylist.
+
+const UNSUPPORTED_SURVEY_TYPES = new Set<string>([
+  "conversational",
+  "sociallistening",
+]);
+
+function isUnsupportedSurveyType(type: string | null | undefined): boolean {
+  if (!type) return false;
+  const normalized = type.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return UNSUPPORTED_SURVEY_TYPES.has(normalized);
 }

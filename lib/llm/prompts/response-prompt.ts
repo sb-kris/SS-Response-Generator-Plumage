@@ -34,6 +34,7 @@
 import type { Persona } from "@/lib/generation/persona-types";
 import type { Question } from "@/lib/surveysparrow/types";
 import {
+  compareQuestionPositions,
   extractQuestionColumns,
   extractQuestionDisplay,
   extractQuestionRows,
@@ -63,6 +64,8 @@ CRITICAL RULES (apply to every persona):
    - detractor: NPS 0-6   | CSAT 1-2 | low-end ratings             | specific complaints
 5. For choice/dropdown/ranking questions, return the choice ID (integer from the options list), NEVER the label text.
 6. NEVER break character. NEVER add preamble or meta-commentary. Output is JSON only.
+7. Answer EVERY question for every persona — required AND optional, single-choice, multi-choice, opinion-scale, text, ratings, all of it. Visibility filtering is Plumage's job: AFTER you respond, Plumage automatically drops answers for questions a given persona wouldn't have seen (based on the survey's display_logic). So don't try to "be helpful" by omitting questions you think might not apply — that's our filter's job, not yours. If a question's options or wording feel sentiment-mismatched (e.g. a complaint-themed text box for a Promoter), still answer it in-character; we'll discard it server-side if needed. Multi-select questions need a NON-EMPTY array of choice IDs (typically 2–4 picks); never return [], null, or omit the key.
+8. Demo-richness rule: this is generated demo data, NOT field research. When offered a branching question (e.g. "Do you have time for more feedback?", "Which areas would you like to comment on?"), lean strongly toward EXPANSION — pick the answer that opens up more of the survey, and on multi-select "which areas?" pick 2–4 of the options. Demo dashboards need rich coverage across every section.
 
 OUTPUT: A JSON array with exactly one object per persona, in the same order they are listed. Each object has an "answers" key.`;
 
@@ -127,6 +130,8 @@ CRITICAL RULES:
    - promoter:  NPS 9-10  | CSAT 4-5 | ratings near top of scale  | mostly positive open-text
    - passive:   NPS 7-8   | CSAT 3   | mid-scale ratings           | mixed / lukewarm open-text
    - detractor: NPS 0-6   | CSAT 1-2 | low-end ratings             | specific complaints in open-text
+10. Answer EVERY question — required AND optional, single-choice, multi-choice, opinion-scale, text, ratings, all of it. Visibility filtering is Plumage's job: AFTER your response, Plumage automatically drops answers for questions you wouldn't have seen (based on the survey's display_logic). So don't second-guess which questions "apply" — answer them and let our filter handle it. Multi-select questions need a NON-EMPTY array of choice IDs (typically 2–4 picks); never return [], null, or omit the key.
+11. Demo-richness rule: this is demo data, not field research. When offered a branching question (e.g. "Do you have time for more feedback?", "Which areas to comment on?"), lean toward EXPANSION — pick the answer that opens up more of the survey, and on multi-select "which areas?" pick 2–4 options. Demo dashboards need rich coverage across every section.
 
 OUTPUT: Strict JSON. No markdown wrapping, no fences, no prose before or after.`;
 
@@ -166,8 +171,11 @@ export function buildResponsePrompt(
     });
   }
 
-  // Stable order by parsed position so the prompt mirrors the survey UX.
-  renderedQuestions.sort((a, b) => parsePosition(a.position) - parsePosition(b.position));
+  // Stable survey-walk order — uses (section.position, question.position)
+  // via compareQuestionPositions. Sorting by question.position alone
+  // scrambles order across sections; see compareQuestionPositions header
+  // for the bug history.
+  renderedQuestions.sort((a, b) => compareQuestionPositions(a.raw, b.raw));
 
   // ---- Build the persona block --------------------------------------------
   const langInfo = LANGUAGES_BY_CODE[persona.language];
@@ -205,8 +213,12 @@ Use case context (the company running this survey):
 ${surveyContext.useCase || "(generic SaaS product context — keep answers neutral and product-feedback-shaped)"}`;
 
   // ---- Render each question -----------------------------------------------
+  // Map by id so renderQuestion can resolve display_logic references
+  // (e.g. "Q3 includes choice X") to friendly position labels + choice
+  // text instead of bare numeric ids.
+  const questionsById = new Map(renderedQuestions.map((q) => [q.id, q]));
   const questionsBlock = renderedQuestions
-    .map((q) => renderQuestion(q))
+    .map((q) => renderQuestion(q, questionsById))
     .join("\n\n");
 
   // ---- Output schema with concrete examples for the LLM ------------------
@@ -214,7 +226,8 @@ ${surveyContext.useCase || "(generic SaaS product context — keep answers neutr
 
   // ---- Final reminders + retry block --------------------------------------
   const remindersBlock = `INSTRUCTIONS:
-- Answer ALL ${renderedQuestions.length} questions as ${persona.firstName} would.
+- Answer EVERY question in the QUESTIONS block — required and optional, choice and text. Plumage handles visibility filtering (display_logic) AFTER your response — we'll drop any answer for a question the persona wouldn't have seen, so you don't need to think about that. Just answer everything in character. Multi-select questions need a NON-EMPTY array of choice IDs (typically 2–4 picks); NEVER return [], null, or omit the key.
+- Demo coverage: this is demo data — we WANT rich, full surveys. When you're offered a branching question that decides whether to enter a deeper section (e.g. "Do you have three more minutes?", "Which areas would you like to comment on?"), lean toward EXPANSION: pick "Yes/continue" the majority of the time, and on multi-select "which areas?" pick 2–4 of the available choices (not zero). Demo dashboards need coverage across every section.
 - Open-text answers MUST be in ${langName}, not English (unless ${langName} is English).
 - For choice/dropdown/ranking questions, return choice IDs from the lists below — exact integers, never labels.
 - Choose options that align with your sentiment archetype (${persona.sentimentArchetype}) and your stated concerns.
@@ -286,7 +299,7 @@ export function buildBatchResponsePrompt(
     expectedAnswerTypes[String(q.id)] = answerType;
     renderedQuestions.push({ id: q.id, position: display.position, text: display.text, description: display.description, required: display.required, answerType, meta, raw: q, display });
   }
-  renderedQuestions.sort((a, b) => parsePosition(a.position) - parsePosition(b.position));
+  renderedQuestions.sort((a, b) => compareQuestionPositions(a.raw, b.raw));
 
   // Build one persona section per persona.
   const personaSections = personas.map((persona, idx) => {
@@ -317,7 +330,8 @@ Demographic context: ${persona.demographicNotes || "(none)"}`;
   }
 Use case context: ${surveyContext.useCase || "(generic product context)"}`;
 
-  const questionsBlock = renderedQuestions.map((q) => renderQuestion(q)).join("\n\n");
+  const questionsByIdBatch = new Map(renderedQuestions.map((q) => [q.id, q]));
+  const questionsBlock = renderedQuestions.map((q) => renderQuestion(q, questionsByIdBatch)).join("\n\n");
 
   const schemaBlock = `OUTPUT SCHEMA — return a JSON array with exactly ${personas.length} objects:
 
@@ -376,13 +390,47 @@ interface RenderedQuestion {
   display: ReturnType<typeof extractQuestionDisplay>;
 }
 
-function renderQuestion(q: RenderedQuestion): string {
+function renderQuestion(
+  q: RenderedQuestion,
+  questionsById?: Map<number, RenderedQuestion>,
+): string {
   const lines: string[] = [];
   const reqTag = q.required ? " [REQUIRED]" : "";
   lines.push(`Q${q.position} (id=${q.id})${reqTag}: ${q.text}`);
   if (q.description) {
     lines.push(`  Context: ${q.description}`);
   }
+
+  // Visibility-gating (display_logic) is intentionally NOT shown to the
+  // LLM here — this is a deliberate iteration-driven decision worth
+  // recording, because the obvious instinct is to expose the gate.
+  //
+  // Iteration history:
+  //   1. Original prompt: rendered "Conditional: only answer this if ..."
+  //      for every gated question. Result: 0% answer rate on Q1004043885
+  //      (multi-select gateway) across 90+ Fontainebleau responses.
+  //   2. Flipped to positive framing ("SHOWN whenever X; you MUST answer
+  //      when gate satisfied"). Result: 0% on the same question.
+  //   3. Added a hyper-specific retry directive listing valid IDs. Result:
+  //      still 0%. The model ignored the retry text entirely.
+  //
+  // Conclusion: the WORD "Conditional" + a multi-select + a gate triggers
+  // a skip-prior in the model that no wording overcomes. So we move the
+  // entire visibility decision server-side: the prompt presents every
+  // answerable question as if it were unconditional, the LLM answers them
+  // freely, and the validator's display_logic post-filter
+  // (validateResponseOutput → computeShownQuestions) drops any answer
+  // whose gate isn't actually satisfied by the persona's own picks.
+  //
+  // Cost: the model spends some tokens on answers that get filtered out
+  // (e.g. a Promoter answering "what went wrong?"). That's a token-spend
+  // trade we accept for guaranteed cascade coverage. cascade-injector.ts
+  // adds a safety net for the rare case the model still misses a required
+  // gated question — see that module for the post-retry recovery path.
+  //
+  // If you're tempted to re-introduce a Conditional hint here: don't,
+  // unless you have evidence the model behaves differently for your
+  // survey shape. Test it.
 
   switch (q.answerType) {
     case "nps":
@@ -441,21 +489,21 @@ function renderQuestion(q: RenderedQuestion): string {
     }
     case "matrix_single": {
       lines.push(
-        `  Type: Matrix (single answer) — return an object keyed by row ID; each value is the chosen scale-point ID for that row.`,
+        `  Type: Matrix (single answer) — return an object keyed by row ID; each value is an array containing ONE column ID for that row (the long integer "col id", NOT the label).`,
       );
       lines.push(formatMatrixRowsCols(q.raw, "scalePoints"));
       break;
     }
     case "matrix_multiple": {
       lines.push(
-        `  Type: Matrix (multi answer) — return an object keyed by row ID; each value is an array of chosen scale-point IDs for that row.`,
+        `  Type: Matrix (multi answer) — return an object keyed by row ID; each value is an array of one or more column IDs for that row (the long integer "col id"s, NOT the labels).`,
       );
       lines.push(formatMatrixRowsCols(q.raw, "scalePoints"));
       break;
     }
     case "matrix_dropdown": {
       lines.push(
-        `  Type: Matrix (dropdown) — return an object keyed by row ID; each value is the chosen choice ID for that row's dropdown.`,
+        `  Type: Matrix (dropdown) — return an object keyed by row ID; each value is an array containing ONE column ID for that row's dropdown (the long integer "col id", NOT the label).`,
       );
       lines.push(formatMatrixRowsCols(q.raw, "scalePoints"));
       break;
@@ -539,11 +587,22 @@ function formatMatrixRowsCols(q: Question, _columnKind: "scalePoints"): string {
   if (rowLines.length === 0 && colLines.length === 0) {
     return "    (no rows/columns — leave empty)";
   }
+  // Worked example using THIS question's actual IDs — kills the
+  // label/ID confusion that bit weaker models when scale labels happen
+  // to be numeric ("0", "1", ... "10"). We pick the FIRST row and the
+  // MIDDLE column to give the LLM a concrete target it can copy.
+  const exampleLine = (() => {
+    if (rows.length === 0 || cols.length === 0) return null;
+    const sampleRow = rows[0]!;
+    const sampleCol = cols[Math.floor(cols.length / 2)] ?? cols[0]!;
+    return `  Example for THIS question: { "${sampleRow.id}": [${sampleCol.id}] } means row "${sampleRow.label}" rated as column "${sampleCol.label}". Use these exact col id integers (not the label).`;
+  })();
   return [
     "  Rows:",
     ...(rowLines.length ? rowLines : ["    (none)"]),
     "  Columns:",
     ...(colLines.length ? colLines : ["    (none)"]),
+    ...(exampleLine ? [exampleLine] : []),
   ].join("\n");
 }
 
@@ -821,9 +880,94 @@ function extractConstantSumTotal(q: Question): number {
   return typeof d.total_sum === "number" ? d.total_sum : 100;
 }
 
-// "Q1.2.3" → 1.000200000003 — sortable numerically while preserving multi-level positions.
-function parsePosition(p: string): number {
-  if (!p) return Number.MAX_SAFE_INTEGER;
-  const parts = p.split(".").map((s) => Number.parseInt(s, 10));
-  return parts.reduce((acc, n, i) => acc + (Number.isNaN(n) ? 0 : n) / Math.pow(1000, i), 0);
+// (Removed local parsePosition; replaced by compareQuestionPositions in
+// lib/surveysparrow/types.ts which correctly handles section ordering.)
+
+// ---------------------------------------------------------------------------
+// Display-logic prompt description (phase: display-logic-respect)
+// ---------------------------------------------------------------------------
+//
+// Render a question's display_logic as a one-liner the LLM can interpret
+// against the persona it's playing. The goal isn't formal correctness —
+// the validator's evaluator is the source of truth for whether a question
+// is shown. The goal here is to tell the LLM "you don't need to answer
+// this for Promoters" up front so it doesn't waste tokens trying.
+//
+// Examples:
+//   - Q3 includes choice "Yes, I attended a show" (id=1234)
+//   - Q5 ≤ 6 AND Q7 includes choice "Service" (id=789)
+//   - variable loyalty_tier equals "Gold"
+
+function describeDisplayLogic(
+  logic: Question["display_logic"],
+  questionsById: Map<number, RenderedQuestion>,
+): string | null {
+  if (!logic?.logics || logic.logics.length === 0) return null;
+  const parts: string[] = [];
+  for (let i = 0; i < logic.logics.length; i++) {
+    const c = logic.logics[i]!;
+    if (i > 0) {
+      parts.push(c.join_condition === "or" ? " OR " : " AND ");
+    }
+    parts.push(describeCondition(c, questionsById));
+  }
+  return parts.join("");
+}
+
+function describeCondition(
+  c: NonNullable<NonNullable<Question["display_logic"]>["logics"]>[number],
+  questionsById: Map<number, RenderedQuestion>,
+): string {
+  if (c.type === "variable") {
+    const v = c.variable_name ?? c.variable_id ?? "?";
+    if (c.comparator === "isAnswered") return `variable ${v} is set`;
+    if (c.comparator === "isNotAnswered") return `variable ${v} is empty`;
+    return `variable ${v} ${humanComparator(c.comparator)} ${JSON.stringify(c.value ?? "")}`;
+  }
+  // type === "question"
+  const qid = c.question_id ?? 0;
+  const upstream = questionsById.get(qid);
+  const ref = upstream ? `Q${upstream.position}` : `question id=${qid}`;
+  switch (c.comparator) {
+    case "isSelected": {
+      if (c.choice_id != null) {
+        const choiceText = upstream?.display.choices?.find((ch) => ch.id === c.choice_id)?.text;
+        return choiceText
+          ? `${ref} includes choice "${choiceText}" (id=${c.choice_id})`
+          : `${ref} includes choice id=${c.choice_id}`;
+      }
+      return `${ref} has a selection`;
+    }
+    case "isNotSelected": {
+      if (c.choice_id != null) {
+        const choiceText = upstream?.display.choices?.find((ch) => ch.id === c.choice_id)?.text;
+        return choiceText
+          ? `${ref} does NOT include choice "${choiceText}" (id=${c.choice_id})`
+          : `${ref} does NOT include choice id=${c.choice_id}`;
+      }
+      return `${ref} has no selection`;
+    }
+    case "isAnswered":
+      return `${ref} is answered`;
+    case "isNotAnswered":
+      return `${ref} is not answered`;
+    default:
+      return `${ref} ${humanComparator(c.comparator)} ${JSON.stringify(c.value ?? "")}`;
+  }
+}
+
+function humanComparator(c: string): string {
+  switch (c) {
+    case "equals": return "=";
+    case "notEquals": return "≠";
+    case "greaterThan": return ">";
+    case "lessThan": return "<";
+    case "greaterThanOrEqual": return "≥";
+    case "lessThanOrEqual": return "≤";
+    case "contains": return "contains";
+    case "doesNotContain": return "does NOT contain";
+    case "startsWith": return "starts with";
+    case "endsWith": return "ends with";
+    default: return c;
+  }
 }

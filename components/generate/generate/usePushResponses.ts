@@ -107,6 +107,20 @@ export function usePushResponses(): PushResponsesHookState {
     const setPushPhase = useResponsesStore.getState().setPushPhase;
     const setVariableStats = useResponsesStore.getState().setVariableStats;
 
+    // Persona-bound variables (FIRST_NAME, LAST_NAME, CUSTOMER_EMAIL,
+    // etc.) that the readiness check tells us SS auto-populates from
+    // contact info. Captured here so the batch loop below can pass them
+    // to the response-builder; SS rejects responses that include explicit
+    // values for these variables.
+    //
+    // Default empty — covered by the no-draft-variables fast path which
+    // won't populate the readiness check.
+    let excludeVariableNames: string[] = [];
+    // DATE-typed SS variables that need ISO 8601 datetime formatting at
+    // push time. SS rejects YYYY-MM-DD on DATE columns with the
+    // misleading "Custom Property not found" error.
+    let dateVariableNames: string[] = [];
+
     const draftCustomVariables = useGenerationStore.getState().draft.customVariables;
     if (draftCustomVariables.length > 0) {
       setPushPhase("checking_variables");
@@ -168,6 +182,34 @@ export function usePushResponses(): PushResponsesHookState {
         kind: "batch_ok",
         label: `Variables ready · ${readiness.existingCount} existing${readiness.createdCount > 0 ? `, ${readiness.createdCount} created` : ""}`,
       });
+
+      // Capture persona-bound variable names so the response-builder
+      // strips them from each response's `variables` block. SS rejects
+      // responses that try to write to persona-bound variables (it
+      // auto-populates them from the contact info).
+      excludeVariableNames = readiness.excludeFromPayload ?? [];
+      if (excludeVariableNames.length > 0) {
+        appendDebugLog({
+          time: Date.now(),
+          kind: "batch_ok",
+          label: `Skipping ${excludeVariableNames.length} persona-bound variable${excludeVariableNames.length === 1 ? "" : "s"} from payload: ${excludeVariableNames.join(", ")}`,
+        });
+      }
+
+      // Capture DATE-typed variable names so the response-builder
+      // reformats those values to MM-DD-YYYY before serialisation.
+      // SS's response-batch endpoint accepts ONLY MM-DD-YYYY for DATE
+      // Custom Properties — every other format returns the misleading
+      // "Custom Property not found" error. Format discovered via SS
+      // engineering team + Postman verification 2026-06-01.
+      dateVariableNames = readiness.dateVariableNames ?? [];
+      if (dateVariableNames.length > 0) {
+        appendDebugLog({
+          time: Date.now(),
+          kind: "batch_ok",
+          label: `DATE-typed variables will be sent as MM-DD-YYYY: ${dateVariableNames.join(", ")}`,
+        });
+      }
     }
 
     setPushPhase("pushing_responses");
@@ -230,6 +272,17 @@ export function usePushResponses(): PushResponsesHookState {
 
       const batchNum = Math.floor(i / BATCH_SIZE) + 1;
       const batch = pairs.slice(i, i + BATCH_SIZE);
+
+      // Collect display-logic filtering stats for THIS batch. The
+      // response-builder calls onLogicFiltered once per persona; we
+      // accumulate and emit ONE debug-log line per batch so the panel
+      // stays readable.
+      //
+      // (Without this, the user couldn't tell whether display_logic was
+      // actually doing anything. Surfacing "Batch 2: skipped 23 answers
+      // across 8 personas (avg 2.9)" makes it observable end-to-end.)
+      let batchDropped = 0;
+      let personasWithDrops = 0;
       const payload = buildSSBatchPayload(
         batch.map(({ response, persona }) => ({ response, persona: persona! })),
         surveyId,
@@ -241,13 +294,44 @@ export function usePushResponses(): PushResponsesHookState {
           tags,
           questionParents,
           questionScales,
+          questions: surveyQuestions,
+          excludeVariableNames,
+          dateVariableNames,
+          onLogicFiltered: ({ dropped }) => {
+            if (dropped > 0) {
+              batchDropped += dropped;
+              personasWithDrops += 1;
+            }
+          },
         },
       );
 
+      if (batchDropped > 0) {
+        const avg = (batchDropped / personasWithDrops).toFixed(1);
+        appendDebugLog({
+          time: Date.now(),
+          kind: "batch_ok",
+          label: `Batch ${batchNum}/${totalBatches} — display_logic skipped ${batchDropped} answer${batchDropped === 1 ? "" : "s"} (${personasWithDrops} of ${batch.length} personas, avg ${avg})`,
+        });
+      }
+
+      // Surface the variable keys actually being shipped. This is the
+      // fastest way to verify the persona-bound filter is doing its job
+      // when SS rejects a batch with "Invalid value passed or missing
+      // values in payload" — if FIRST_NAME / LAST_NAME / CUSTOMER_EMAIL
+      // still appear here, the filter missed them and we know where to
+      // dig. Pulled from the FIRST response only (all responses in a
+      // batch use the same persona-variable schema).
+      const firstResponse = payload.responses[0];
+      const variableKeys =
+        firstResponse?.variables ? Object.keys(firstResponse.variables) : [];
       appendDebugLog({
         time: Date.now(),
         kind: "batch_start",
         label: `Batch ${batchNum}/${totalBatches} — sending ${batch.length} response${batch.length === 1 ? "" : "s"}`,
+        detail: variableKeys.length > 0
+          ? `variables: ${variableKeys.join(", ")}`
+          : "no variables in payload",
       });
 
       let result: {

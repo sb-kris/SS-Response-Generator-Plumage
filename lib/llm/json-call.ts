@@ -266,6 +266,28 @@ const OPENROUTER_CONFIG: OpenAICompatibleConfig = {
   supportsJsonMode: true,
 };
 
+// OpenAI's reasoning-tier models (o1/o3/o4 series, GPT-5 series) replaced
+// `max_tokens` with `max_completion_tokens` in their chat-completions API.
+// Passing `max_tokens` to these models returns a 400:
+//   "Unsupported parameter: 'max_tokens' is not supported with this model.
+//    Use 'max_completion_tokens' instead."
+//
+// Older models (GPT-4*, GPT-3.5*) still accept `max_tokens` (technically
+// deprecated but accepted with a warning), and crucially the OpenAI-
+// compatible third-party endpoints we hit (DeepSeek, Groq, OpenRouter)
+// only support `max_tokens` — they haven't picked up the rename. So we
+// can't universally switch.
+//
+// Resolution: match by model-name prefix. Anything starting with `o`+digit
+// (o1, o3, o4, ...) or `gpt-5`+ uses the new param. Everything else keeps
+// the legacy param. Pattern needs to be liberal enough to absorb future
+// reasoning-tier releases without a code change.
+const REASONING_MODEL_PATTERN = /^(o\d|gpt-5|gpt-6)/i;
+
+function tokenParamName(model: string): "max_tokens" | "max_completion_tokens" {
+  return REASONING_MODEL_PATTERN.test(model) ? "max_completion_tokens" : "max_tokens";
+}
+
 async function callOpenAICompatible(
   input: LLMJsonInput,
   cfg: OpenAICompatibleConfig,
@@ -274,9 +296,10 @@ async function callOpenAICompatible(
   // OpenRouter custom-model-ID sentinel: the user picked "Custom model" in
   // the UI and the dispatcher passes the real model ID separately.
   const upstreamModel = input.upstreamModelId ?? input.model;
+  const tokenParam = tokenParamName(upstreamModel);
   const requestBody = JSON.stringify({
     model: upstreamModel,
-    max_tokens: input.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
+    [tokenParam]: input.maxOutputTokens ?? DEFAULT_MAX_TOKENS,
     ...(cfg.supportsJsonMode ? { response_format: { type: "json_object" } } : {}),
     messages: [
       { role: "system", content: input.systemPrompt },

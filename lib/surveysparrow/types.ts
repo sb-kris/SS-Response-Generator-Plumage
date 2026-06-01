@@ -69,6 +69,75 @@ export interface QuestionProperties {
   [key: string]: unknown;
 }
 
+/**
+ * Display / jump logic — conditional show-or-skip rules SS attaches to
+ * a question. We mirror SS's wire shape verbatim so the evaluator can
+ * walk the same fields the dashboard does.
+ *
+ * Example (display_logic — show this question only when choice 1007061174
+ * was selected on question 1004040340):
+ *   {
+ *     "version": "1",
+ *     "logics": [{
+ *       "join_condition": "and",
+ *       "type": "question",
+ *       "comparator": "isSelected",
+ *       "question_id": 1004040340,
+ *       "choice_id": 1007061174,
+ *       "value": ""
+ *     }]
+ *   }
+ *
+ * For `type: "variable"`, the condition is gated on a custom-variable's
+ * value (the assistant's variable system). We probe `variable_name` /
+ * `variable_id` tolerantly because SS surfaces this field under slightly
+ * different names across workspaces.
+ */
+export type LogicJoinCondition = "and" | "or";
+
+export type LogicComparator =
+  | "isSelected"
+  | "isNotSelected"
+  | "equals"
+  | "notEquals"
+  | "greaterThan"
+  | "lessThan"
+  | "greaterThanOrEqual"
+  | "lessThanOrEqual"
+  | "contains"
+  | "doesNotContain"
+  | "startsWith"
+  | "endsWith"
+  | "isAnswered"
+  | "isNotAnswered"
+  | string; // unknown comparators fall through to "show by default" — safer than hiding by default
+
+export interface LogicCondition {
+  /** First entry's join_condition is ignored; subsequent entries combine
+   *  via this against the running result. */
+  join_condition?: LogicJoinCondition;
+  /** "question" gates on another question's answer; "variable" gates on
+   *  a custom-variable's value. */
+  type?: "question" | "variable" | string;
+  comparator: LogicComparator;
+  /** Used when `type: "question"` — the upstream question being checked. */
+  question_id?: number;
+  /** Choice ID for isSelected / isNotSelected comparators. */
+  choice_id?: number | null;
+  /** String/number value for equals / contains / etc. */
+  value?: string | number | null;
+  /** Used when `type: "variable"` — different SS workspaces surface this
+   *  under slightly different names; we probe all of them. */
+  variable_name?: string;
+  variable_id?: number | string;
+}
+
+export interface QuestionLogic {
+  version?: string;
+  /** Empty array (or undefined) = no logic — always show. */
+  logics?: LogicCondition[];
+}
+
 export interface Question {
   id: number;
   type: string; // e.g. "MultiChoice", "OpinionScale", "TextInput", "NPS", "Rating"
@@ -95,6 +164,64 @@ export interface Question {
   // questions (GroupRating_Statement, Matrix_Row, etc.) as siblings with
   // parent_question_id set — we fold them here so extractQuestionRows works.
   rows?: ExtractedRow[];
+  // Conditional logic (phase: display-logic-respect). Both flags + objects
+  // surface from the SS GET /v3/questions endpoint. The response builder
+  // uses them to drop conditional-answer entries that wouldn't have been
+  // shown to the persona, matching what a real respondent would experience.
+  has_display_logic?: boolean;
+  has_jump_logic?: boolean;
+  display_logic?: QuestionLogic | null;
+  jump_logic?: QuestionLogic | null;
+  // Section the question belongs to. SS organises questions into ordered
+  // sections; question.position is RESET within each section, so sorting
+  // by question.position alone scrambles the survey order across
+  // sections. Always sort by (section.position, question.position) — see
+  // compareQuestionPositions below. Matrix child rows have section: null
+  // because they're nested under their parent's section by reference.
+  section?: { position?: string; title?: string | null } | null;
+}
+
+// ---------------------------------------------------------------------------
+// Survey-order sort helpers
+// ---------------------------------------------------------------------------
+//
+// HISTORICAL BUG, fixed here: prior to this helper, display-logic.ts,
+// response-prompt.ts, and cascade-injector.ts each used a local
+// parsePosition(q.position) and sorted by that scalar. SurveySparrow
+// resets question.position within each section (section 1's last
+// question can be position 6.0, section 2's first is position 1.0), so
+// every consumer of that sort was walking the Fontainebleau survey in
+// the wrong order. The display_logic walker would evaluate Q1004043885's
+// gate BEFORE Q1004043884's answer was confirmed, mark it not-shown,
+// and the validator post-filter would silently drop downstream answers.
+// Always use compareQuestionPositions when ordering questions in
+// survey-walk order.
+
+/** Internal: turn an SS dotted-position string into a sortable number. */
+function parsePositionString(p: string | undefined | null): number {
+  if (!p) return 0;
+  const parts = p.split(".").map((s) => Number.parseInt(s, 10));
+  return parts.reduce(
+    (acc, n, i) => acc + (Number.isNaN(n) ? 0 : n) / Math.pow(1000, i),
+    0,
+  );
+}
+
+/** Sort key for a question: [sectionPosition, questionPosition]. Sections
+ *  without an explicit position sort to the front (matrix rows etc.). */
+export function questionSortKey(q: Question): [number, number] {
+  const sectionPos = parsePositionString(q.section?.position);
+  const qPos = parsePositionString(q.position);
+  return [sectionPos, qPos];
+}
+
+/** Comparator for Array.prototype.sort. Use everywhere we walk
+ *  questions in survey order. */
+export function compareQuestionPositions(a: Question, b: Question): number {
+  const [as, aq] = questionSortKey(a);
+  const [bs, bq] = questionSortKey(b);
+  if (as !== bs) return as - bs;
+  return aq - bq;
 }
 
 export type QuestionListResponse = PaginatedResponse<Question>;
@@ -397,8 +524,24 @@ export function extractQuestionRows(q: Question): ExtractedRow[] {
  * Pull column/scale-point entries off a Question. Matrix questions store
  * columns under `q.column` (matching the POST shape), but some workspaces
  * surface them under `q.properties.column` or as `scale_points` instead.
+ *
+ * SPECIAL CASE — Matrix LIKERT (verified via Postman 2026-06-01):
+ * When a Matrix question carries BOTH `choices` AND `scale_points`, with
+ * choices linked to scale_points via `scale_point_id` (the canonical SS
+ * Likert shape), the answer SS actually accepts on /v3/responses/batch
+ * is the CHOICE id (`1007067xxx`-shaped), NOT the scale_point id
+ * (`1000505xxx`-shaped). The SS docs describe Matrix SINGLE_ANSWER as
+ * taking a scale-point ID — but their /v3/responses/batch endpoint
+ * rejects scale_point IDs with the misleading "Invalid value passed or
+ * missing values in payload" error. Choices with their labels inherited
+ * from the linked scale_points succeed. We return choices here so the
+ * prompt + builder send choice_ids end-to-end.
  */
 export function extractQuestionColumns(q: Question): ExtractedRow[] {
+  // Matrix LIKERT short-circuit: choices linked to scale_points.
+  const likertColumns = extractMatrixLikertColumns(q);
+  if (likertColumns) return likertColumns;
+
   const dataProps = (q.properties?.data as Record<string, unknown> | undefined) ?? {};
   const candidates: unknown[] = [
     (q as unknown as { column?: unknown }).column,
@@ -418,6 +561,62 @@ export function extractQuestionColumns(q: Question): ExtractedRow[] {
     return raw.map((c, i) => normalizeRow(c, i));
   }
   return [];
+}
+
+/**
+ * Detect the Matrix LIKERT shape and return the column set the SS
+ * /v3/responses/batch endpoint will accept (choice IDs, with labels
+ * from the linked scale_points). Returns null when the question does
+ * not match the Matrix LIKERT pattern — caller falls back to the
+ * generic column probes.
+ *
+ * Trigger conditions:
+ *   • Question has a non-empty `choices` array, AND
+ *   • Question has a non-empty `scale_points` array, AND
+ *   • Every choice has a numeric `scale_point_id` referencing one of
+ *     the scale_points.
+ *
+ * The label preference order is: linked scale_point's `name`, then its
+ * `text`, then the choice's own `text`/`txt` (usually empty for Likert),
+ * with a positional fallback. This gives the LLM readable column labels
+ * (e.g. "0", "1", ..., "10", "N/A") even though the IDs it must emit
+ * are the long choice_ids.
+ */
+function extractMatrixLikertColumns(q: Question): ExtractedRow[] | null {
+  const choices = Array.isArray(q.choices)
+    ? q.choices
+    : Array.isArray(q.properties?.choices)
+      ? q.properties.choices
+      : null;
+  const scalePoints = Array.isArray(q.scale_points)
+    ? q.scale_points
+    : Array.isArray(q.properties?.scale_points)
+      ? q.properties.scale_points
+      : null;
+  if (!choices || choices.length === 0) return null;
+  if (!scalePoints || scalePoints.length === 0) return null;
+
+  const everyChoiceLinked = choices.every(
+    (c) => typeof c.scale_point_id === "number",
+  );
+  if (!everyChoiceLinked) return null;
+
+  const scalePointById = new Map<number, ScalePoint>();
+  for (const sp of scalePoints) {
+    if (typeof sp.id === "number") scalePointById.set(sp.id, sp);
+  }
+
+  return choices.map((c, i): ExtractedRow => {
+    const sp =
+      typeof c.scale_point_id === "number"
+        ? scalePointById.get(c.scale_point_id)
+        : undefined;
+    const label =
+      firstNonEmptyString(sp?.name, sp?.text, c.text, c.txt) ??
+      `Option ${i + 1}`;
+    const id = typeof c.id === "number" ? c.id : i + 1;
+    return { id, label };
+  });
 }
 
 function collectRowCandidates(q: Question): unknown[] {

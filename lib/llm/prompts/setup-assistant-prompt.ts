@@ -62,15 +62,30 @@ OUTPUT SCHEMA — return strictly this JSON shape:
     { "label": "Theme name (1-4 words)", "weight": 25, "reason": "Why this theme matters for this survey." }
   ],
   "customVariables": [
+    // STRING (default — segments, tiers, statuses, named entities):
     {
-      "label": "Human readable",
-      "apiIdentifier": "snake_case_id",
+      "label": "Customer Tier",
+      "apiIdentifier": "customer_tier",
       "type": "STRING",
-      "source": "surveysparrow_variable",   // "ai_suggested" for new variables you invent
-      "options": [
-        { "text": "Realistic option grounded in the company", "weight": 40 }
-      ],
+      "source": "surveysparrow_variable",
+      "options": [{ "text": "Enterprise", "weight": 40 }, { "text": "Growth", "weight": 35 }],
       "reason": "Why this variable enriches the demo."
+    },
+    // NUMBER (counts, amounts, scores — use ONLY when the field is genuinely numeric):
+    {
+      "label": "Purchase Amount",
+      "apiIdentifier": "purchase_amount",
+      "type": "NUMBER",
+      "numberConfig": { "mode": "range", "min": 25, "max": 1500, "allowDecimals": true, "decimalPlaces": 2 },
+      "reason": "Order total tied to this submission."
+    },
+    // DATE (transaction date, signup date — always emitted as YYYY-MM-DD):
+    {
+      "label": "Order Date",
+      "apiIdentifier": "order_date",
+      "type": "DATE",
+      "dateConfig": { "mode": "relative", "relativeDays": 60 },
+      "reason": "When the order was placed."
     }
   ],
   "warnings": []
@@ -79,7 +94,11 @@ OUTPUT SCHEMA — return strictly this JSON shape:
 CONSTRAINTS:
 - "context": 2-3 sentences, 220-400 characters. No marketing flourish, no exclamation marks.
 - "themes": between 4 and 8 entries. Each label is 1-4 words. Each weight is an integer 5-40. Weights are RELATIVE — they don't need to sum to 100.
-- "customVariables": up to 24 entries — covers existing SS workspace variables (enriched) PLUS up to 4 new AI-suggested ones. apiIdentifier must be snake_case, lowercase letters and digits and underscores, start with a letter, max 35 chars. Each variable has 2-5 options. Option text must be grounded in the company / survey context — NEVER use "Sample value A", "Option 1", "Placeholder", "Value 1" or similar fillers; the validator rejects those. Option weights are integers 5-95 and should roughly sum to ~100 for readability (not enforced).
+- "customVariables": up to 24 entries — covers existing SS workspace variables (enriched) PLUS up to 4 new AI-suggested ones. apiIdentifier must be snake_case, lowercase letters and digits and underscores, start with a letter, max 35 chars.
+  - STRING: 2-5 options. Option text must be grounded in the company / survey context — NEVER use "Sample value A", "Option 1", "Placeholder", "Value 1" or similar fillers; the validator rejects those. Option weights are integers 5-95 and should roughly sum to ~100 for readability (not enforced).
+  - NUMBER: include "numberConfig" — mode "range" needs min<max; mode "static" needs staticValue. allowDecimals=true only for currency/measurements/scores; leave it false for counts and IDs. decimalPlaces is 1-4 (default 2).
+  - DATE: include "dateConfig" — mode "relative" with relativeDays 1-365, OR "range" with start+end as YYYY-MM-DD strings. Dates are always shipped to SurveySparrow as YYYY-MM-DD.
+- Default to STRING. Use NUMBER or DATE only when the variable's natural type clearly demands it.
 - "warnings": optional array of short strings if you had to skip or rename things.`;
 
 export function buildSetupAssistantPrompt(

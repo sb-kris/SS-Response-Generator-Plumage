@@ -14,6 +14,34 @@
 
 import type { GeneratedResponse, AnswerValue } from "@/lib/generation/response-types";
 import type { Persona } from "@/lib/generation/persona-types";
+import type { Question } from "@/lib/surveysparrow/types";
+import { computeShownQuestions } from "@/lib/surveysparrow/display-logic";
+
+// Safety-net denylist — variable names we always strip from the response
+// `variables` block, regardless of whether the readiness check detected
+// them as persona-bound. Catches workspaces where the /v3/variables
+// endpoint doesn't reveal the binding shape (so detection returns no
+// hits) but the variable is wired to a persona field internally.
+//
+// Why these specific names: every one of them is a standard SurveySparrow
+// persona binding per their docs / dashboard taxonomy. If a custom
+// STRING-typed variable with one of these names exists, the auto-populate
+// would have overridden our value anyway — so dropping it from the
+// payload is a no-op for correctness and a fix for cases where SS would
+// otherwise reject the response.
+const PERSONA_BINDING_NAME_FALLBACKS: ReadonlySet<string> = new Set([
+  "first_name",
+  "last_name",
+  "full_name",
+  "email",
+  "customer_email",
+  "contact_email",
+  "contact_first_name",
+  "contact_last_name",
+  "phone",
+  "phone_number",
+  "contact_phone",
+]);
 
 // ---------------------------------------------------------------------------
 // Wire format types
@@ -74,6 +102,59 @@ export interface PushOptions {
    * sub-rows whose qid IS the row id, not the parent.
    */
   questionParents?: Map<number, number>;
+  /**
+   * Full question list for the survey, used to evaluate display_logic /
+   * jump_logic at push time. When supplied, each persona's answer set is
+   * filtered so questions whose conditional logic would have HIDDEN them
+   * from this persona never make it into the SS payload — mirroring what
+   * a real respondent would have experienced.
+   *
+   * If omitted (or empty), no logic filtering happens — every LLM answer
+   * is pushed as-is. Useful for surveys with no conditional questions
+   * and as a safety net when the survey-store hasn't populated the
+   * questions data yet.
+   *
+   * Note: a question is only filtered when display_logic is present AND
+   * its conditions definitively fail for the persona. Unknown comparators
+   * or malformed logic blocks default to "show", so dropping is
+   * conservative.
+   */
+  questions?: Question[];
+  /**
+   * Optional callback invoked once per persona with stats about how many
+   * answers were kept vs dropped by display_logic. Used by the push hook
+   * to surface a debug-log line ("Batch 2: 7 conditional answers
+   * skipped") so the user can see the feature is working without diffing
+   * payloads.
+   */
+  onLogicFiltered?: (stats: { personaName: string; kept: number; dropped: number }) => void;
+  /**
+   * Lowercased variable names that must NOT appear in each response's
+   * `variables` block. Used to drop persona-bound variables (FIRST_NAME,
+   * LAST_NAME, CUSTOMER_EMAIL, etc.) — SurveySparrow auto-populates those
+   * from the response's contact info, and rejects the entire response
+   * with "Invalid value passed or missing values in payload" if we
+   * include explicit values.
+   *
+   * Sourced from ensureSurveyVariablesExist().excludeFromPayload at push
+   * time, so the list reflects whatever's actually configured on the SS
+   * workspace.
+   */
+  excludeVariableNames?: string[];
+  /**
+   * Lowercased names of variables whose SS type is "DATE". Values for
+   * these keys are reformatted to MM-DD-YYYY (dashes, NOT slashes)
+   * before serialisation — the format SS's response-batch endpoint
+   * accepts. Confirmed via the SS engineering team + Postman probe
+   * 2026-06-01: every other format we tested returned "Custom
+   * Property not found" (YYYY-MM-DD, YYYY/MM/DD, ISO 8601 datetime,
+   * epoch ms, DDMMYYYY, MMDDYYYY slashed — all failed).
+   *
+   * Internal storage in Plumage stays YYYY-MM-DD (used by CSV export,
+   * preview, the dashboard). The MM-DD-YYYY conversion is applied at
+   * the SS-wire boundary only.
+   */
+  dateVariableNames?: string[];
 }
 
 export interface SSBatchResponseItem {
@@ -147,9 +228,60 @@ function buildBatchItem(
   const answers: SSAnswerEntry[] = [];
   const parentMap = options?.questionParents;
   const scalesMap = options?.questionScales;
+
+  // --------------------------------------------------------------
+  // Display-logic filter (phase: display-logic-respect)
+  // --------------------------------------------------------------
+  //
+  // Build a map of the persona's answers keyed by question id, then ask
+  // the evaluator which questions would actually have been shown given
+  // those answers + the persona's variable values. Only answers for
+  // shown questions land in the push payload.
+  //
+  // Notes:
+  //   • The shown-set is per-persona — chained logic ("show Q3 only if Q2
+  //     was answered with X") evaluates correctly because the evaluator
+  //     walks questions in survey order, only considering answers from
+  //     already-confirmed-shown upstream questions.
+  //   • Matrix / GroupRating / ConstantSum sub-rows aren't first-class
+  //     questions in the survey list — only their parents are. So we
+  //     filter at the PARENT level; if a parent passes, all its rows
+  //     go through. Today SS doesn't surface display_logic on row-level
+  //     entities anyway, so this matches the platform's behavior.
+  //   • Follow-up children (NPSFeedback) ARE in the questions list with
+  //     parent_question_id set. Their display_logic (if any) is evaluated
+  //     normally; if SS didn't set explicit logic they default to shown.
+  //
+  // If no questions list was supplied, every question is considered
+  // shown (legacy behavior — no filtering).
+  let shownSet: Set<number> | null = null;
+  if (options?.questions && options.questions.length > 0) {
+    const answersByQid = new Map<number, AnswerValue>();
+    for (const [qidStr, answer] of Object.entries(response.answers)) {
+      const qid = parseInt(qidStr, 10);
+      if (Number.isFinite(qid)) answersByQid.set(qid, answer);
+    }
+    shownSet = computeShownQuestions(options.questions, {
+      answersByQuestionId: answersByQid,
+      variableValues: persona.variableValues,
+    });
+  }
+
+  let kept = 0;
+  let dropped = 0;
+
   for (const [qidStr, answer] of Object.entries(response.answers)) {
     const qid = parseInt(qidStr, 10);
     if (!Number.isFinite(qid)) continue;
+    // If we have a shown-set, skip questions that aren't in it. Questions
+    // not present in the survey list at all (defensive: orphan answer
+    // for an unknown qid) are also skipped — better to drop than push
+    // an answer SS will reject.
+    if (shownSet !== null && !shownSet.has(qid)) {
+      dropped++;
+      continue;
+    }
+    kept++;
     for (const entry of convertAnswer(qid, answer, persona)) {
       // For top-level questions that are themselves children of a parent
       // (NPSFeedback → NPSScore is the canonical case), populate the
@@ -163,28 +295,50 @@ function buildBatchItem(
         }
       }
 
-      // Defensive: clamp numeric answers to the question's actual scale.
+      // Defensive: clamp + round numeric answers to the question's actual scale.
       // SS rejects any value outside the configured min/max with a
       // generic "Invalid value passed or missing values in payload"
-      // error. The validator already enforces this at generation time,
-      // but its resolved scale may be wider than SS's actual config
-      // (e.g. when the question type is "OpinionScale" but the SS
-      // workspace has it configured 0-7 rather than 0-10). Clamping here
-      // is the last-mile guarantee that the payload stays within range.
+      // error, AND rejects non-integer answers for rating-style questions
+      // (NPS, CSAT, rating, opinion_scale, slider). The validator
+      // enforces this at generation time, but the LLM occasionally emits
+      // 3.8 / 2.6 / etc. — clamping + rounding here is the last-mile
+      // guarantee that the payload stays both in-range and integer-typed
+      // for whole-number scales.
       if (
         scalesMap &&
         typeof entry.answer === "number" &&
         !Array.isArray(entry.answer)
       ) {
+        // Local copy keeps TS's number-narrowing across the clamp+round.
+        // `entry.answer` is typed `unknown` on SSAnswerEntry; reassigning
+        // through it loses the narrowing the typeof guard established.
+        let n: number = entry.answer;
         const scale = scalesMap.get(qid);
         if (scale) {
-          if (entry.answer < scale.min) entry.answer = scale.min;
-          else if (entry.answer > scale.max) entry.answer = scale.max;
+          if (n < scale.min) n = scale.min;
+          else if (n > scale.max) n = scale.max;
         }
+        // Round to integer when the scale uses integer endpoints — which
+        // is true for every rating-style SS question we generate for
+        // (NPS 0-10, CSAT 1-5, opinion_scale 1-N). Sliders that genuinely
+        // allow decimals are rare and would still round to the nearest
+        // integer here; if a workspace needs decimals we'd track this
+        // via question metadata instead.
+        if (!Number.isInteger(n)) {
+          n = Math.round(n);
+        }
+        entry.answer = n;
       }
 
       answers.push(entry);
     }
+  }
+
+  // Surface per-persona logic stats to the caller (push hook) — used to
+  // log a single "N conditional answers skipped" line per batch. Only
+  // fires when filtering actually happened.
+  if (shownSet !== null && options?.onLogicFiltered) {
+    options.onLogicFiltered({ personaName: persona.name, kept, dropped });
   }
 
   // date_time in meta_data = survey start (submit minus random 2–10 min).
@@ -198,17 +352,61 @@ function buildBatchItem(
 
   const tagsForResponse: string[] = options?.tags ?? [];
 
+  // Filter out persona-bound variables from the response payload. SS
+  // auto-populates these from the contact (full_name → first_name +
+  // last_name → persona.firstName / persona.lastName, email →
+  // persona.email), and rejects the entire response with "Invalid value
+  // passed or missing values in payload" if we include explicit values.
+  //
+  // Two layers of defense:
+  //   1. Dynamic exclude list from the readiness check — catches whatever
+  //      the SS API reveals as persona-bound for THIS workspace.
+  //   2. Hardcoded safety net — common SS persona-binding names that we
+  //      always strip, even if detection silently missed them. Cheap
+  //      insurance: any SE writing a "first_name" custom STRING variable
+  //      would still get it auto-overwritten by the persona's actual
+  //      name on push, so removing it from the payload is harmless.
+  // Build the exclusion set:
+  //   1. Caller-supplied persona-bound names (from /v3/variables PERSONA
+  //      type detection).
+  //   2. Hardcoded persona-binding name fallbacks (first_name, last_name,
+  //      email, etc.) — safety net for workspaces where detection misses.
+  // DATE-typed names are NOT excluded — they're reformatted to MM-DD-YYYY
+  // below at the SS-wire boundary (the only format SS accepts).
+  const dynamicExclude = options?.excludeVariableNames ?? [];
+  const excludeSet = new Set<string>([
+    ...dynamicExclude.map((s) => s.toLowerCase()),
+    ...PERSONA_BINDING_NAME_FALLBACKS,
+  ]);
+  const dateNameSet = new Set<string>(
+    (options?.dateVariableNames ?? []).map((s) => s.toLowerCase()),
+  );
+  const filteredVariables: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(persona.variableValues)) {
+    if (excludeSet.has(k.toLowerCase())) continue;
+    // DATE-typed → MM-DD-YYYY (the only format SS's batch endpoint
+    // accepts). Non-DATE values pass through untouched.
+    filteredVariables[k] = dateNameSet.has(k.toLowerCase())
+      ? formatDateVariableValue(v)
+      : v;
+  }
+  const variablesForPayload = filteredVariables;
+
   return {
     contact: {
       full_name: persona.name,
       ...(persona.email ? { email: persona.email } : {}),
-      ...(persona.phone ? { phone: persona.phone } : {}),
+      // Phone at the contact level: same E.164 normalisation as the
+      // answer entries. SS appears to validate contact.phone with the
+      // same rules as a PhoneNumber answer, and rejects faker's
+      // "+1 (...) ..." format with a generic "Invalid value" error.
+      ...(persona.phone ? { phone: toE164Phone(persona.phone) } : {}),
       contact_type: "contact",
     },
     trigger_workflow: options?.triggerWorkflow ?? false,
     ...(channelId !== undefined ? { channel_id: channelId } : {}),
-    ...(Object.keys(persona.variableValues).length > 0
-      ? { variables: persona.variableValues }
+    ...(Object.keys(variablesForPayload).length > 0
+      ? { variables: variablesForPayload }
       : {}),
     meta_data: {
       os: persona.os,
@@ -249,8 +447,18 @@ function convertAnswer(qid: number, answer: AnswerValue, persona: Persona): SSAn
     case "phone":
       return [{
         question_id: qid,
-        answer: answer.value,
-        region_code: persona.country || undefined,
+        // SS rejects faker's verbose "+1 (682) 433-1083" with a generic
+        // "Invalid value passed or missing values in payload" error.
+        // Normalising to E.164 (+CCNNNNNNNNNN, digits only) makes it
+        // accept the same number — that's the international standard
+        // most survey APIs require for phone questions.
+        answer: toE164Phone(String(answer.value)),
+        // region_code must be present or SS rejects with "region is
+        // mandatory for Phone Number question". persona.country is set
+        // by the faker layer for every persona; "US" is the safety-net
+        // fallback for the rare case it's empty (mapping miss, custom
+        // country filter, etc.). We never want to leave this undefined.
+        region_code: persona.country || "US",
       }];
 
     case "date":
@@ -390,4 +598,118 @@ function toLocaleBcp47(lang: string, country?: string): string {
   }
   const def = LANG_DEFAULT_REGION[l];
   return def ? `${l}-${def}` : l;
+}
+
+// ---------------------------------------------------------------------------
+// Phone wire format — E.164
+// ---------------------------------------------------------------------------
+//
+// SurveySparrow rejects faker's verbose phone format with a generic
+// "Invalid value passed or missing values in payload" error, on BOTH
+// contact.phone and PhoneNumber answer entries. The shape SS expects
+// is E.164: a leading "+", then country code, then national number,
+// with NO spaces / parentheses / dashes.
+//
+// Examples (faker output → wire format):
+//   "+1 (682) 433-1083" → "+16824331083"
+//   "+44 12 4176 0340"   → "+441241760340"
+//   "+34 925 747 719"    → "+34925747719"
+//   "+91 51992 10613"    → "+915199210613"
+//
+// Implementation: strip everything that isn't a digit, preserve the
+// leading + if the input had one. If the input had no + (which
+// shouldn't happen for faker output but is defensible), we still
+// strip non-digits but skip the + prefix — region_code carries the
+// country information separately so SS can re-attach if needed.
+function toE164Phone(raw: string): string {
+  if (!raw) return raw;
+  const trimmed = raw.trim();
+  if (!trimmed) return raw;
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D+/g, "");
+  if (digits.length === 0) return trimmed;
+  return hasPlus ? `+${digits}` : digits;
+}
+
+// ---------------------------------------------------------------------------
+// DATE wire format — MM-DD-YYYY
+// ---------------------------------------------------------------------------
+//
+// SurveySparrow's /v3/responses/batch endpoint accepts DATE-typed
+// Custom Property values ONLY in MM-DD-YYYY format with dashes
+// (e.g. "04-21-2026" for April 21, 2026). Confirmed by the SS
+// engineering team via direct code inspection 2026-06-01, then
+// verified via Postman against a live workspace.
+//
+// Every other format we tested returns the misleading error
+// "Custom Property not found":
+//
+//   - "2026-04-21"                  (YYYY-MM-DD dashed)
+//   - "2026/04/21"                  (YYYY/MM/DD slashed)
+//   - "21/04/2026"                  (DDMMYYYY slashed)
+//   - "21-04-2026"                  (DDMMYYYY dashed)
+//   - "04/21/2026"                  (MMDDYYYY slashed)
+//   - "2026-04-21T00:00:00.000Z"    (ISO 8601 datetime, midnight)
+//   - "2026-04-21T11:28:55.642Z"    (ISO 8601 datetime, real time)
+//   - 1745366400000                 (epoch ms number)
+//   - "1745366400000"               (epoch ms string)
+//
+// `formatDateVariableValue` is invoked only for variable keys the
+// readiness check identified as DATE-typed on the SS workspace.
+// Non-DATE values never reach this function — they pass through the
+// builder untouched.
+
+const MM_DD_YYYY_RE = /^\d{2}-\d{2}-\d{4}$/;
+const YYYY_MM_DD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const YYYY_SLASH_MM_DD_RE = /^(\d{4})\/(\d{2})\/(\d{2})$/;
+const ISO_DT_PREFIX_RE = /^(\d{4})-(\d{2})-(\d{2})T/;
+
+function formatDateVariableValue(value: string | number): string | number {
+  // Numbers → assume epoch ms.
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return value;
+    return formatEpochAsMMDDYYYY(value);
+  }
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return ""; // explicit blank stays blank
+
+  // Already MM-DD-YYYY — pass through unchanged.
+  if (MM_DD_YYYY_RE.test(trimmed)) return trimmed;
+
+  // YYYY-MM-DD (what faker-layer emits internally) → reorder.
+  const ymd = trimmed.match(YYYY_MM_DD_RE);
+  if (ymd) {
+    return `${ymd[2]}-${ymd[3]}-${ymd[1]}`;
+  }
+
+  // YYYY/MM/DD → reorder.
+  const ymdSlash = trimmed.match(YYYY_SLASH_MM_DD_RE);
+  if (ymdSlash) {
+    return `${ymdSlash[2]}-${ymdSlash[3]}-${ymdSlash[1]}`;
+  }
+
+  // ISO datetime ("2026-04-21T..." or "2026-04-21T...Z") → extract date.
+  const isoDt = trimmed.match(ISO_DT_PREFIX_RE);
+  if (isoDt) {
+    return `${isoDt[2]}-${isoDt[3]}-${isoDt[1]}`;
+  }
+
+  // Last-ditch: ask the platform Date parser. If it yields a valid
+  // instant, emit MM-DD-YYYY. Otherwise leave the original value
+  // alone so the caller sees real content rather than NaN-shaped junk.
+  const ms = Date.parse(trimmed);
+  if (Number.isFinite(ms)) return formatEpochAsMMDDYYYY(ms);
+  return trimmed;
+}
+
+function formatEpochAsMMDDYYYY(ms: number): string {
+  // UTC components — keeps the output timezone-independent. The faker
+  // layer constructs dates as midnight UTC, so this stays consistent
+  // end-to-end.
+  const d = new Date(ms);
+  const yyyy = d.getUTCFullYear().toString().padStart(4, "0");
+  const mm = (d.getUTCMonth() + 1).toString().padStart(2, "0");
+  const dd = d.getUTCDate().toString().padStart(2, "0");
+  return `${mm}-${dd}-${yyyy}`;
 }

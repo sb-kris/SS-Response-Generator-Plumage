@@ -334,6 +334,44 @@ export function getQuestionTypeMeta(rawType: string): QuestionTypeMeta {
   const cached = cache.get(key);
   if (cached) return cached;
 
+  // First pass: exact-match against aliases.
+  //
+  // HISTORICAL BUG, fixed here: the previous implementation only used
+  // `key.includes(alias)`, which silently misclassified types whose
+  // normalised name was a SUPERSTRING of an earlier alias.
+  // Concrete case: "PhoneNumber" normalises to "phonenumber", which
+  // includes "number" — so the Number registry entry (line ~223,
+  // alphabetically-earlier than the Phone entry) matched first and the
+  // canonical came back as "number" with answerable: true. That made
+  // inferAnswerType treat PhoneNumber questions as Number questions →
+  // LLM produced digit answers → response-builder emitted them as plain
+  // numbers (no region_code) → SS rejected with "region is mandatory
+  // for Phone Number question". Two prior fixes (cascade injector +
+  // region fallback) couldn't help because the injector's canonical
+  // check (`=== "phone"`) never matched the bogus "number" value.
+  //
+  // Exact-match-first preserves the substring behaviour for cases that
+  // genuinely need it (e.g. "matrixgrid" → matrix, "npsscore" → nps),
+  // but resolves the substring ambiguity in favour of the more specific
+  // type whenever an exact alias exists.
+  for (const entry of REGISTRY) {
+    for (const alias of entry.aliases) {
+      if (key === alias) {
+        const meta: QuestionTypeMeta = {
+          canonical: alias,
+          label: entry.label,
+          bucket: entry.bucket,
+          answerable: entry.answerable,
+          icon: entry.icon,
+        };
+        cache.set(key, meta);
+        return meta;
+      }
+    }
+  }
+
+  // Second pass: substring match. Handles normalised variants the
+  // exact-match pass doesn't cover ("matrixgrid", "npsscore", etc.).
   for (const entry of REGISTRY) {
     for (const alias of entry.aliases) {
       if (key.includes(alias)) {

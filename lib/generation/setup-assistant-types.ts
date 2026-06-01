@@ -121,10 +121,19 @@ export function timingForSurveyType(
 export interface SetupAssistantLLMOutput {
   context: string;
   themes: Array<{ label: string; weight: number; reason?: string }>;
+  /**
+   * Variable suggestions from the LLM. Each entry can be STRING, NUMBER,
+   * or DATE-typed; the validator dispatches by `type` and builds the
+   * matching CustomVariableValues shape downstream. STRING is the
+   * historical default — pre-existing LLM outputs that omit type or
+   * the `numberConfig` / `dateConfig` blocks continue to validate as
+   * STRING with options[].
+   */
   customVariables: Array<{
     label: string;
     apiIdentifier: string;
-    type: "STRING";
+    /** Defaults to "STRING" when omitted (backward compat). */
+    type?: "STRING" | "NUMBER" | "DATE";
     /**
      * Where the variable originated. Optional in the LLM output: when
      * omitted we infer it by matching `apiIdentifier` against the SS
@@ -134,7 +143,27 @@ export interface SetupAssistantLLMOutput {
      * sending it to the variable-creation endpoint at push time.
      */
     source?: "ai_suggested" | "surveysparrow_variable";
-    options: Array<{ text: string; weight: number }>;
+    /** STRING-only — weighted options the persona picks from per response. */
+    options?: Array<{ text: string; weight: number }>;
+    /** NUMBER-only — describes a range or a static value. */
+    numberConfig?: {
+      mode?: "range" | "static";
+      min?: number;
+      max?: number;
+      staticValue?: number;
+      allowDecimals?: boolean;
+      decimalPlaces?: number;
+    };
+    /** DATE-only — describes a relative window or an absolute range.
+     *  Dates in the response payload are ALWAYS emitted as YYYY-MM-DD
+     *  regardless of how the LLM chose to express them here. */
+    dateConfig?: {
+      mode?: "relative" | "range";
+      relativeDays?: number;
+      /** YYYY-MM-DD or epoch ms — validator coerces. */
+      start?: string | number;
+      end?: string | number;
+    };
     reason?: string;
   }>;
   warnings?: string[];
@@ -164,9 +193,19 @@ export interface SurveySparrowVariableSummary {
   name: string;
   /** Human-readable label (e.g. "Customer Email"). */
   label?: string;
-  /** STRING / NUMBER / DATE / SECURE (we treat unknown as STRING). */
+  /** STRING / NUMBER / DATE / SECURE (we treat unknown as STRING).
+   *  PERSONA-bound variables surface as type "PERSONA" — SS auto-populates
+   *  these from the contact info on each response, so we MUST NOT send
+   *  values for them in the push payload (SS rejects the entire response
+   *  with "Invalid value passed or missing values in payload"). */
   type?: string;
   description?: string;
+  /** Human-readable persona binding (e.g. "persona.firstName") when the
+   *  variable is wired to a persona field. Set whenever the route detects
+   *  the variable is persona-bound — even when `type` itself doesn't say
+   *  PERSONA. Used to (a) skip enrichment in the AI Setup Assistant and
+   *  (b) filter the variable out of the response push payload. */
+  personaBinding?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -149,47 +149,15 @@ export function validateSetupAssistantOutput(parsed: unknown): SetupValidationRe
     }
     seenIdentifiers.add(apiIdentifier);
 
-    // options — we accept STRING-typed only for now (matches the LLM
-    // contract). Any other "type" gets coerced to STRING; the model
-    // already knows from the prompt to use STRING.
-    //
-    // Placeholder rejection: text matching "Sample value A", "Value 1",
-    // "Option A", "Placeholder", etc. is silently dropped. The LLM
-    // sometimes falls back to these when it can't ground a variable in
-    // the company / survey context — we'd rather drop the variable
-    // entirely than ship lazy fillers the user has to rewrite.
-    const optionsRaw = Array.isArray(obj.options) ? obj.options : [];
-    const options: Array<{ text: string; weight: number }> = [];
-    const seenOptionTexts = new Set<string>();
-    let placeholdersSeen = 0;
-    for (const opt of optionsRaw) {
-      if (!opt || typeof opt !== "object") continue;
-      const o = opt as Record<string, unknown>;
-      const text = typeof o.text === "string" ? o.text.trim() : "";
-      if (!text) continue;
-      // Reject placeholder filler — keep counter for warning.
-      if (PLACEHOLDER_TEXT_REGEX.test(text)) {
-        placeholdersSeen += 1;
-        continue;
-      }
-      // De-dupe option text within the same variable (case-insensitive).
-      const dedupKey = text.toLowerCase();
-      if (seenOptionTexts.has(dedupKey)) continue;
-      seenOptionTexts.add(dedupKey);
-
-      let weight = typeof o.weight === "number" ? Math.round(o.weight) : Math.round(100 / Math.max(1, optionsRaw.length));
-      if (!Number.isFinite(weight) || weight < 1) weight = 1;
-      if (weight > 100) weight = 100;
-      options.push({ text: text.slice(0, 80), weight });
-      if (options.length >= OPTIONS_MAX) break;
-    }
-    if (options.length < OPTIONS_MIN) {
-      const msg = placeholdersSeen > 0
-        ? `Too few real options (${options.length}) — dropped ${placeholdersSeen} placeholder filler${placeholdersSeen === 1 ? "" : "s"}.`
-        : `Too few options (${options.length}) — dropped variable.`;
-      errors.push({ field: `customVariables[${i}].options`, message: msg });
-      continue;
-    }
+    // Dispatch by type. STRING is the historical default — if the LLM
+    // omits `type` we treat it as STRING and require options[]. NUMBER /
+    // DATE variables go through their respective validators below; if
+    // those validators reject the entry, we DON'T silently downgrade
+    // to STRING (that would emit a STRING variable with no options,
+    // which then gets dropped anyway).
+    const rawType = typeof obj.type === "string" ? obj.type.trim().toUpperCase() : "STRING";
+    const varType: "STRING" | "NUMBER" | "DATE" =
+      rawType === "NUMBER" ? "NUMBER" : rawType === "DATE" ? "DATE" : "STRING";
 
     // source — optional. The LLM SHOULD set this to "surveysparrow_variable"
     // when enriching an existing workspace variable so the dialog knows
@@ -204,14 +172,146 @@ export function validateSetupAssistantOutput(parsed: unknown): SetupValidationRe
           : undefined;
 
     const reason = typeof obj.reason === "string" ? obj.reason.trim() : undefined;
-    variables.push({
-      label: label.slice(0, 64),
-      apiIdentifier,
-      type: "STRING",
-      ...(source ? { source } : {}),
-      options,
-      reason,
-    });
+    const labelTrimmed = label.slice(0, 64);
+
+    // ---- STRING (default) ----
+    if (varType === "STRING") {
+      // Placeholder rejection: text matching "Sample value A", "Value 1",
+      // "Option A", "Placeholder", etc. is silently dropped. The LLM
+      // sometimes falls back to these when it can't ground a variable in
+      // the company / survey context — we'd rather drop the variable
+      // entirely than ship lazy fillers the user has to rewrite.
+      const optionsRaw = Array.isArray(obj.options) ? obj.options : [];
+      const options: Array<{ text: string; weight: number }> = [];
+      const seenOptionTexts = new Set<string>();
+      let placeholdersSeen = 0;
+      for (const opt of optionsRaw) {
+        if (!opt || typeof opt !== "object") continue;
+        const o = opt as Record<string, unknown>;
+        const text = typeof o.text === "string" ? o.text.trim() : "";
+        if (!text) continue;
+        if (PLACEHOLDER_TEXT_REGEX.test(text)) {
+          placeholdersSeen += 1;
+          continue;
+        }
+        const dedupKey = text.toLowerCase();
+        if (seenOptionTexts.has(dedupKey)) continue;
+        seenOptionTexts.add(dedupKey);
+
+        let weight = typeof o.weight === "number" ? Math.round(o.weight) : Math.round(100 / Math.max(1, optionsRaw.length));
+        if (!Number.isFinite(weight) || weight < 1) weight = 1;
+        if (weight > 100) weight = 100;
+        options.push({ text: text.slice(0, 80), weight });
+        if (options.length >= OPTIONS_MAX) break;
+      }
+      if (options.length < OPTIONS_MIN) {
+        const msg = placeholdersSeen > 0
+          ? `Too few real options (${options.length}) — dropped ${placeholdersSeen} placeholder filler${placeholdersSeen === 1 ? "" : "s"}.`
+          : `Too few options (${options.length}) — dropped variable.`;
+        errors.push({ field: `customVariables[${i}].options`, message: msg });
+        continue;
+      }
+      variables.push({
+        label: labelTrimmed,
+        apiIdentifier,
+        type: "STRING",
+        ...(source ? { source } : {}),
+        options,
+        reason,
+      });
+      continue;
+    }
+
+    // ---- NUMBER ----
+    if (varType === "NUMBER") {
+      const cfgRaw = (obj.numberConfig && typeof obj.numberConfig === "object")
+        ? (obj.numberConfig as Record<string, unknown>)
+        : {};
+      const mode: "range" | "static" =
+        cfgRaw.mode === "static" ? "static" : "range";
+      const min = typeof cfgRaw.min === "number" ? cfgRaw.min : undefined;
+      const max = typeof cfgRaw.max === "number" ? cfgRaw.max : undefined;
+      const staticValue =
+        typeof cfgRaw.staticValue === "number" ? cfgRaw.staticValue : undefined;
+      if (mode === "range" && (min === undefined || max === undefined || min >= max)) {
+        errors.push({
+          field: `customVariables[${i}].numberConfig`,
+          message: `NUMBER range needs min < max — dropped variable.`,
+        });
+        continue;
+      }
+      if (mode === "static" && staticValue === undefined) {
+        errors.push({
+          field: `customVariables[${i}].numberConfig`,
+          message: `NUMBER static needs a numeric staticValue — dropped variable.`,
+        });
+        continue;
+      }
+      const allowDecimals = cfgRaw.allowDecimals === true;
+      const decimalPlaces =
+        typeof cfgRaw.decimalPlaces === "number"
+          ? Math.max(1, Math.min(4, Math.round(cfgRaw.decimalPlaces)))
+          : undefined;
+      variables.push({
+        label: labelTrimmed,
+        apiIdentifier,
+        type: "NUMBER",
+        ...(source ? { source } : {}),
+        numberConfig: {
+          mode,
+          min,
+          max,
+          staticValue,
+          allowDecimals,
+          ...(decimalPlaces ? { decimalPlaces } : {}),
+        },
+        reason,
+      });
+      continue;
+    }
+
+    // ---- DATE ----
+    if (varType === "DATE") {
+      const cfgRaw = (obj.dateConfig && typeof obj.dateConfig === "object")
+        ? (obj.dateConfig as Record<string, unknown>)
+        : {};
+      const mode: "relative" | "range" =
+        cfgRaw.mode === "range" ? "range" : "relative";
+      const relativeDays =
+        typeof cfgRaw.relativeDays === "number"
+          ? Math.max(1, Math.min(365, Math.round(cfgRaw.relativeDays)))
+          : undefined;
+      const start = coerceDateToMs(cfgRaw.start);
+      const end = coerceDateToMs(cfgRaw.end);
+      if (mode === "relative" && relativeDays === undefined) {
+        errors.push({
+          field: `customVariables[${i}].dateConfig`,
+          message: `DATE relative mode needs relativeDays — dropped variable.`,
+        });
+        continue;
+      }
+      if (mode === "range" && (start === undefined || end === undefined || start >= end)) {
+        errors.push({
+          field: `customVariables[${i}].dateConfig`,
+          message: `DATE range needs start < end (YYYY-MM-DD or epoch ms) — dropped variable.`,
+        });
+        continue;
+      }
+      variables.push({
+        label: labelTrimmed,
+        apiIdentifier,
+        type: "DATE",
+        ...(source ? { source } : {}),
+        dateConfig: {
+          mode,
+          ...(relativeDays !== undefined ? { relativeDays } : {}),
+          ...(start !== undefined ? { start } : {}),
+          ...(end !== undefined ? { end } : {}),
+        },
+        reason,
+      });
+      continue;
+    }
   }
   void VARIABLES_MIN; // explicit "we don't enforce a lower bound"
 
@@ -245,4 +345,26 @@ export function summarizeSetupErrors(errors: SetupValidationError[]): string {
 
 function emptyOutput(): SetupAssistantLLMOutput {
   return { context: FALLBACK_CONTEXT, themes: [], customVariables: [], warnings: [] };
+}
+
+// Accept either a YYYY-MM-DD string or an epoch-ms number from the LLM
+// and normalise to epoch ms (which is what the downstream
+// `DateValueConfig.start`/`.end` fields store). Returns undefined for
+// anything else.
+function coerceDateToMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const s = value.trim();
+    // YYYY-MM-DD is the canonical input shape (matches our payload format).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const ms = Date.parse(s + "T00:00:00Z");
+      if (Number.isFinite(ms)) return ms;
+    }
+    // ISO datetime — also accepted ("2026-05-22T10:00:00Z").
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+      const ms = Date.parse(s);
+      if (Number.isFinite(ms)) return ms;
+    }
+  }
+  return undefined;
 }

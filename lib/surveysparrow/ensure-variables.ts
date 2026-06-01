@@ -53,6 +53,29 @@ export interface EnsureVariablesResult {
   failedNames: string[];
   /** First/most helpful error message, if creation failed. */
   errorMessage?: string;
+  /**
+   * Lowercased names of variables that SS auto-populates from the response
+   * contact / persona (e.g. FIRST_NAME → persona.firstName). The push must
+   * NOT include values for these — SS rejects the entire response with
+   * "Invalid value passed or missing values in payload" when we try to
+   * write to a persona-bound variable.
+   *
+   * The caller passes this list to buildSSBatchPayload via
+   * PushOptions.excludeVariableNames so the response-builder filters them
+   * out before serializing.
+   */
+  excludeFromPayload: string[];
+  /**
+   * Lowercased names of variables whose SS type is "DATE". These need
+   * special formatting at push time — SS rejects YYYY-MM-DD values for
+   * DATE-typed columns with the misleading "Custom Property not found"
+   * error and expects ISO 8601 datetimes ("2026-01-11T00:00:00.000Z")
+   * instead.
+   *
+   * Passed to buildSSBatchPayload via PushOptions.dateVariableNames so the
+   * response-builder can coerce values for those keys.
+   */
+  dateVariableNames: string[];
 }
 
 interface ExistingVariableShape {
@@ -60,6 +83,8 @@ interface ExistingVariableShape {
   name?: string;
   label?: string;
   type?: string;
+  /** Set when the variables route detected a persona binding. */
+  personaBinding?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +113,7 @@ export async function ensureSurveyVariablesExist(
 ): Promise<EnsureVariablesResult> {
   // Fast path: nothing in the draft to verify.
   if (input.variables.length === 0) {
-    return { ok: true, existingCount: 0, createdCount: 0, failedNames: [] };
+    return { ok: true, existingCount: 0, createdCount: 0, failedNames: [], excludeFromPayload: [], dateVariableNames: [] };
   }
 
   input.onProgress?.({ kind: "checking" });
@@ -118,6 +143,8 @@ export async function ensureSurveyVariablesExist(
         existingCount: 0,
         createdCount: 0,
         failedNames: [],
+        excludeFromPayload: [],
+        dateVariableNames: [],
         errorMessage: `Couldn't read existing variables: ${json.error ?? "unknown error"}`,
       };
     }
@@ -128,11 +155,33 @@ export async function ensureSurveyVariablesExist(
       existingCount: 0,
       createdCount: 0,
       failedNames: [],
+      excludeFromPayload: [],
+      dateVariableNames: [],
       errorMessage:
         err instanceof Error
           ? `Couldn't reach the variables endpoint: ${err.message}`
           : "Couldn't reach the variables endpoint.",
     };
+  }
+
+  // Collect persona-bound variable names ONCE — used by both the
+  // checked-only fast path and the create-then-ready path below.
+  // SS auto-populates these from the contact persona, so we mustn't
+  // include them in the response push payload.
+  const excludeFromPayload: string[] = [];
+  // Collect DATE-typed variable names. SS requires ISO 8601 datetime
+  // values for these columns; the response-builder uses this list to
+  // coerce YYYY-MM-DD generation output to ISO datetime at push time.
+  const dateVariableNames: string[] = [];
+  for (const v of existing) {
+    if (typeof v.name !== "string") continue;
+    const lowerName = v.name.trim().toLowerCase();
+    if (v.personaBinding) {
+      excludeFromPayload.push(lowerName);
+    }
+    if (typeof v.type === "string" && v.type.trim().toUpperCase() === "DATE") {
+      dateVariableNames.push(lowerName);
+    }
   }
 
   // ---- Step 2: diff ----
@@ -171,6 +220,8 @@ export async function ensureSurveyVariablesExist(
       existingCount: existing.length,
       createdCount: 0,
       failedNames: [],
+      excludeFromPayload,
+      dateVariableNames,
     };
   }
 
@@ -219,6 +270,8 @@ export async function ensureSurveyVariablesExist(
       existingCount: existing.length,
       createdCount: 0,
       failedNames: uniqueMissing.map((v) => v.apiIdentifier),
+      excludeFromPayload,
+      dateVariableNames,
       errorMessage:
         err instanceof Error
           ? `Variable creation failed: ${err.message}`
@@ -240,6 +293,8 @@ export async function ensureSurveyVariablesExist(
     existingCount: existing.length,
     createdCount: created,
     failedNames,
+    excludeFromPayload,
+    dateVariableNames,
     errorMessage,
   };
 }

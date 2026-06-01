@@ -83,7 +83,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Coerce + trim. We keep only the four fields the dialog cares about.
+  // Coerce + trim. We keep only the four fields the dialog cares about,
+  // PLUS a derived `personaBinding` field that flags variables SS auto-
+  // populates from the contact persona (e.g. first_name → persona.firstName).
+  // Those variables MUST be excluded from the response-push variables
+  // payload — SS rejects the whole response otherwise.
   const variables: SurveySparrowVariableSummary[] = [];
   for (const v of result.data) {
     if (!v || typeof v !== "object") continue;
@@ -98,6 +102,7 @@ export async function POST(req: NextRequest) {
       label: typeof v.label === "string" ? v.label : undefined,
       type: typeof v.type === "string" ? v.type : undefined,
       description: typeof v.description === "string" ? v.description : undefined,
+      personaBinding: detectPersonaBinding(v),
     });
   }
 
@@ -109,4 +114,51 @@ export async function POST(req: NextRequest) {
     count: variables.length,
     truncated: Boolean(result.truncated),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Persona-binding detection
+// ---------------------------------------------------------------------------
+//
+// SurveySparrow workspaces can configure a variable to be auto-populated
+// from the contact persona (e.g. FIRST_NAME → persona.firstName). The SS
+// dashboard renders these with a "PERSONA" badge. If we push values for
+// these variables in a response payload, SS rejects the entire response
+// with "Invalid value passed or missing values in payload".
+//
+// The exact wire shape SS uses for this varies. Observed forms:
+//   • `type: "PERSONA"` (top-level type)
+//   • a sibling field — `binding` / `mapped_to` / `value` / `source` —
+//     whose string value references `persona.firstName` etc.
+//
+// We probe permissively: any field whose string value mentions
+// "persona.<something>" flags the variable as persona-bound. False positives
+// here are cheap (we just don't push a value the SS server would have
+// auto-populated anyway); false negatives = full push failure.
+function detectPersonaBinding(raw: RawSSVariable): string | undefined {
+  // (a) Top-level type field — SS sometimes surfaces "PERSONA" directly.
+  if (typeof raw.type === "string" && raw.type.trim().toUpperCase() === "PERSONA") {
+    return raw.type.trim();
+  }
+  // (b) Deep scan via JSON.stringify of the whole raw object minus the
+  // user-facing label fields (which might happen to contain the word
+  // "persona" in plain English, e.g. "Persona Type"). The stringified
+  // blob catches references nested inside `properties.mapped_to`,
+  // `binding.field`, arrays of objects, or any other shape SS might use.
+  // This is intentionally permissive — false positives are cheap
+  // (we just don't push a value SS would have auto-populated anyway);
+  // false negatives = full push failure.
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === "name" || k === "label" || k === "description") continue;
+    rest[k] = v;
+  }
+  let blob: string;
+  try {
+    blob = JSON.stringify(rest);
+  } catch {
+    return undefined;
+  }
+  const match = blob.match(/persona\.[a-zA-Z_][a-zA-Z0-9_]*/);
+  return match ? match[0] : undefined;
 }

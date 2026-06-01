@@ -928,6 +928,51 @@ function ErrorStep({ message, onRetry }: { message: string; onRetry: () => void 
 // ---------------------------------------------------------------------------
 
 function buildCustomVariableFromLLM(v: SetupAssistantLLMOutput["customVariables"][number]): CustomVariable {
+  const t = v.type ?? "STRING";
+  // NUMBER — range or static, with optional decimals.
+  if (t === "NUMBER" && v.numberConfig) {
+    const c = v.numberConfig;
+    return {
+      id: crypto.randomUUID(),
+      label: v.label,
+      apiIdentifier: v.apiIdentifier,
+      type: "NUMBER",
+      values: {
+        kind: "number",
+        config: {
+          mode: c.mode === "static" ? "static" : "range",
+          min: c.min,
+          max: c.max,
+          staticValue: c.staticValue,
+          allowDecimals: c.allowDecimals === true,
+          ...(c.decimalPlaces ? { decimalPlaces: c.decimalPlaces } : {}),
+        },
+      },
+    };
+  }
+  // DATE — relative or absolute range. epoch-ms is the storage unit (matches
+  // DateValueConfig); the validator already coerced YYYY-MM-DD strings.
+  if (t === "DATE" && v.dateConfig) {
+    const c = v.dateConfig;
+    return {
+      id: crypto.randomUUID(),
+      label: v.label,
+      apiIdentifier: v.apiIdentifier,
+      type: "DATE",
+      values: {
+        kind: "date",
+        config: {
+          mode: c.mode === "range" ? "range" : "relative",
+          relativeDays: c.relativeDays,
+          start: typeof c.start === "number" ? c.start : undefined,
+          end: typeof c.end === "number" ? c.end : undefined,
+        },
+      },
+    };
+  }
+  // STRING fallback (also covers the explicit STRING case). Defensive
+  // `?? []` because the LLM output type now marks `options` as optional —
+  // any NUMBER/DATE entry that fell through here would have no options.
   return {
     id: crypto.randomUUID(),
     label: v.label,
@@ -935,7 +980,10 @@ function buildCustomVariableFromLLM(v: SetupAssistantLLMOutput["customVariables"
     type: "STRING",
     values: {
       kind: "string",
-      config: { options: v.options.map((o) => ({ text: o.text, weight: o.weight })) },
+      config: {
+        mode: "options",
+        options: (v.options ?? []).map((o) => ({ text: o.text, weight: o.weight })),
+      },
     },
   };
 }

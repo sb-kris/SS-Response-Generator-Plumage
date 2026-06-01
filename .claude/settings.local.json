@@ -64,7 +64,26 @@
       "Bash(awk '/step__num|<h4>/' public/deck/index.html)",
       "Bash(awk '/step__num|<h4>Connect|<h4>Pick|<h4>Configure|<h4>Generate|<h4>Download/' public/deck/index.html)",
       "Bash(grep -nA 8 \"hero__title reveal\" public/deck/index.html)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "WebFetch(domain:surveysparrow.com)",
+      "WebFetch(domain:developers.salesparrow.com)",
+      "Bash(grep -nA 22 \"for \\(const item of itemsContainer\\)\" app/api/surveysparrow/responses/route.ts)",
+      "Bash(grep -nA 5 \"failureReasons: Array.from\" app/api/surveysparrow/responses/route.ts)",
+      "Bash(grep -nA 12 \"if \\(statusResult.done\\)\" app/api/surveysparrow/responses/route.ts)",
+      "Bash(grep -nB 2 -A 6 'case \"nps\":' lib/surveysparrow/response-builder.ts)",
+      "Bash(grep -nA 4 'suggestion.source === \"surveysparrow_variable\" ?' components/generate/configure/SetupAssistantDialog.tsx)",
+      "Read(//Users/sujith.balakrishnan/Downloads/**)",
+      "Bash(python3)",
+      "Bash(ls scripts/)",
+      "Bash(ls node_modules/.bin/tsx)",
+      "Bash(npx --yes tsx scripts/test-cascade-injector.ts)",
+      "Bash(PLUMAGE_INJECTOR_DEBUG=1 npx --yes tsx scripts/test-cascade-injector.ts)",
+      "Bash(rm scripts/test-cascade-injector.ts)",
+      "Bash(rmdir scripts *)",
+      "Bash(ls scripts *)",
+      "Bash(npx --yes tsx scripts/test-phone-injection.ts)",
+      "Bash(rm scripts/test-phone-injection.ts)",
+      "Bash(git config *)"
     ]
   }
 }

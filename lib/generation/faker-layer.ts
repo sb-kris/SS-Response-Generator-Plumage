@@ -417,12 +417,54 @@ function resolveVariableValues(
   personaSnapshot: PersonaFieldSnapshot,
 ): Record<string, string | number> {
   const out: Record<string, string | number> = {};
+  // Pre-pass: detect paired DATE variables (check-in / check-out style).
+  // When two DATE variables share a stem and use a known start-end suffix
+  // pair (e.g. `stay_check_in` + `stay_check_out`), generate them together
+  // so the "out" date is always after the "in" date. Without this, the
+  // two variables get independent random dates and the user sees
+  // nonsensical orderings like checkout BEFORE check-in.
+  const pairs = detectDateVariablePairs(variables);
+  const handledIds = new Set<string>();
+
   for (const v of variables) {
+    if (handledIds.has(v.id)) continue;
+
+    // Paired DATE variables: resolve start + end together.
+    const pair = pairs.get(v.id);
+    if (pair && v.values.kind === "date" && pair.end.values.kind === "date") {
+      const startVar = pair.role === "start" ? v : pair.end;
+      const endVar = pair.role === "start" ? pair.end : v;
+      // Re-narrow after the ternary — TS loses the kind="date" guard
+      // through the conditional expression even though we proved it
+      // above for both candidates.
+      const startVals = startVar.values;
+      const endVals = endVar.values;
+      if (startVals.kind === "date" && endVals.kind === "date") {
+        const startMs = pickDateMs(startVals.config, rng, submissionTime);
+        // Stay length: 1–7 days after the start date. Reasonable default
+        // for hotel stays, trips, events. We deliberately don't honor the
+        // end variable's own range config — the user almost certainly
+        // wants a coherent stay, not two independent dates that happen
+        // to share a name prefix.
+        const stayDays = 1 + Math.floor(rng() * 7);
+        const endMs = startMs + stayDays * 24 * 60 * 60 * 1000;
+        out[startVar.apiIdentifier] = new Date(startMs).toISOString().slice(0, 10);
+        out[endVar.apiIdentifier] = new Date(endMs).toISOString().slice(0, 10);
+        handledIds.add(startVar.id);
+        handledIds.add(endVar.id);
+        continue;
+      }
+    }
+
     const val = v.values;
     if (val.kind === "string") {
-      const opts = val.config.options;
-      if (opts.length === 0) continue;
-      out[v.apiIdentifier] = weightedPick(opts, (o) => o.weight, rng).text;
+      const generated = generateStringValue(val.config, rng);
+      // generateStringValue may return null when the persona draws a blank
+      // from the weighted distribution. We emit an empty string so the
+      // variable key still appears in the payload (SS treats "" as "not
+      // provided" without rejecting the response), which is more
+      // forward-compatible than dropping the key entirely.
+      out[v.apiIdentifier] = generated ?? "";
     } else if (val.kind === "number") {
       if (val.config.mode === "static" && typeof val.config.staticValue === "number") {
         out[v.apiIdentifier] = val.config.staticValue;
@@ -430,7 +472,16 @@ function resolveVariableValues(
         const lo = val.config.min ?? 0;
         const hi = val.config.max ?? lo;
         const span = Math.max(0, hi - lo);
-        out[v.apiIdentifier] = lo + Math.round(rng() * span);
+        if (val.config.allowDecimals) {
+          // Clamp decimalPlaces to 1–4 (matches the UI control + schema
+          // notes); default to 2 when unspecified.
+          const places = Math.min(4, Math.max(1, val.config.decimalPlaces ?? 2));
+          const raw = lo + rng() * span;
+          const factor = Math.pow(10, places);
+          out[v.apiIdentifier] = Math.round(raw * factor) / factor;
+        } else {
+          out[v.apiIdentifier] = lo + Math.round(rng() * span);
+        }
       }
     } else if (val.kind === "date") {
       let ms: number;
@@ -456,6 +507,219 @@ function resolveVariableValues(
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// STRING value generation — modes + blank support
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-persona STRING value resolution. Handles three independent dimensions:
+ *
+ *   1. Mode: "options" (weighted fixed list) vs "examples" (pattern-based
+ *      similar-value generation from user-supplied examples). Defaults to
+ *      "options" when undefined for backward compat with profiles saved
+ *      before mode was a field.
+ *
+ *   2. Blank: when `allowBlank` is set, the blank outcome participates in
+ *      the weighted draw with weight `blankWeight`. Returns null when the
+ *      persona drew blank.
+ *
+ *   3. Empty input: every mode degrades gracefully — empty options list
+ *      with blank disallowed returns null (the caller then writes "" to
+ *      the payload).
+ */
+function generateStringValue(
+  config: import("@/lib/profiles/types").StringValueConfig,
+  rng: () => number,
+): string | null {
+  const mode = config.mode ?? "options";
+  const allowBlank = config.allowBlank === true;
+  const blankWeight = allowBlank ? Math.max(0, Math.min(100, config.blankWeight ?? 0)) : 0;
+
+  // ---- Weighted blank draw ----
+  // We model the blank outcome as a virtual entry alongside the value
+  // entries. Total weight = sum(non-blank weights) + blankWeight. If the
+  // random pick lands inside the blank slice, return null.
+  const valueEntries: Array<{ text: string; weight: number }> = [];
+  if (mode === "options") {
+    for (const o of config.options) {
+      if (o.weight > 0) valueEntries.push({ text: o.text, weight: o.weight });
+    }
+  } else {
+    // "examples" mode — flat-weight the examples; the variation step below
+    // adds per-emission randomness.
+    const examples = (config.examples ?? []).filter((e) => e.trim().length > 0);
+    for (const ex of examples) {
+      valueEntries.push({ text: ex, weight: 1 });
+    }
+  }
+
+  const valueWeightSum = valueEntries.reduce((s, e) => s + e.weight, 0);
+  const totalWeight = valueWeightSum + blankWeight;
+  if (totalWeight <= 0) {
+    // Nothing configured at all — emit blank.
+    return null;
+  }
+
+  let pick = rng() * totalWeight;
+  if (blankWeight > 0) {
+    if (pick < blankWeight) return null;
+    pick -= blankWeight;
+  }
+
+  // Now pick from value entries.
+  let chosen: string | null = null;
+  for (const e of valueEntries) {
+    pick -= e.weight;
+    if (pick <= 0) {
+      chosen = e.text;
+      break;
+    }
+  }
+  if (chosen == null) chosen = valueEntries[valueEntries.length - 1]?.text ?? null;
+  if (chosen == null) return null;
+
+  // For examples mode, apply pattern-based variation so successive
+  // responses get similar-looking-but-distinct values. For options mode,
+  // the user already curated the exact text — emit verbatim.
+  if (mode === "examples") {
+    return varyExample(chosen, rng);
+  }
+  return chosen;
+}
+
+/**
+ * Apply lightweight pattern-based variation to a single example string.
+ *
+ * Goal: take "TCK-102938" and emit "TCK-104582" / "TCK-118903" / etc. —
+ * the same shape with the variable parts randomized. The rule is simple:
+ * find every digit run of length ≥ 3 and replace its digits with random
+ * digits of the same length. This preserves prefixes ("TCK-"), separators
+ * ("-"), and short numeric suffixes ("v2", "i3") while randomising the
+ * "ID-like" portions.
+ *
+ * Free-form text without long digit runs ("Marvin Certified Dealer")
+ * passes through unchanged — the user gets variety by listing multiple
+ * examples instead. This is intentional: synthesizing semantically-
+ * similar free text without an LLM call is unreliable, and the user
+ * explicitly asked for "no expensive per-response LLM calls only for
+ * variable values."
+ */
+function varyExample(example: string, rng: () => number): string {
+  return example.replace(/\d{3,}/g, (match) => {
+    let out = "";
+    for (let i = 0; i < match.length; i++) {
+      out += Math.floor(rng() * 10).toString();
+    }
+    return out;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DATE variable pairing (check-in / check-out)
+// ---------------------------------------------------------------------------
+//
+// SS workspaces commonly have related DATE variables for stays / trips /
+// events / employment, e.g. `stay_check_in` + `stay_check_out`. The faker
+// layer used to resolve each independently, which produced nonsensical
+// orderings (check-out before check-in) for half of the personas. This
+// pairing pre-pass detects related pairs by suffix and resolves them as
+// a coherent (start, end) window.
+//
+// Detection is conservative — we only pair variables when:
+//   1. Both are DATE-typed.
+//   2. The names share a stem AND end with a matched suffix pair below.
+//
+// Single DATE variables without a partner fall through to the normal
+// per-variable resolution.
+
+const DATE_PAIR_SUFFIXES: ReadonlyArray<{ start: string; end: string }> = [
+  { start: "_check_in", end: "_check_out" },
+  { start: "_checkin", end: "_checkout" },
+  { start: "_in", end: "_out" },
+  { start: "_start", end: "_end" },
+  { start: "_from", end: "_to" },
+  { start: "_arrival", end: "_departure" },
+  { start: "_begin", end: "_end" },
+];
+
+interface DatePairInfo {
+  /** The other half of the pair. */
+  end: CustomVariable;
+  /** Role of THIS variable in the pair. */
+  role: "start" | "end";
+}
+
+/**
+ * Return a map keyed by variable id whose value tells the caller the
+ * variable's role in a detected pair and a reference to its partner. Each
+ * paired variable appears in the map TWICE (once as start, once as end),
+ * so callers can early-exit on the second one via `handledIds`.
+ */
+function detectDateVariablePairs(
+  variables: CustomVariable[],
+): Map<string, DatePairInfo> {
+  const dateVars = variables.filter((v) => v.values.kind === "date");
+  if (dateVars.length < 2) return new Map();
+
+  // Lookup by lowercased name for case-insensitive matching.
+  const byName = new Map<string, CustomVariable>();
+  for (const v of dateVars) {
+    byName.set(v.apiIdentifier.toLowerCase(), v);
+  }
+
+  const result = new Map<string, DatePairInfo>();
+  for (const v of dateVars) {
+    if (result.has(v.id)) continue; // already paired
+    const name = v.apiIdentifier.toLowerCase();
+    for (const { start, end } of DATE_PAIR_SUFFIXES) {
+      // Try matching the END suffix first — checked longest-first below
+      // would also work, but the array is already ordered start before
+      // end for each entry. The two branches are symmetric.
+      if (name.endsWith(start)) {
+        const stem = name.slice(0, -start.length);
+        if (!stem) continue;
+        const partner = byName.get(stem + end);
+        if (partner && partner.id !== v.id && !result.has(partner.id)) {
+          result.set(v.id, { end: partner, role: "start" });
+          result.set(partner.id, { end: v, role: "end" });
+          break;
+        }
+      }
+      if (name.endsWith(end)) {
+        const stem = name.slice(0, -end.length);
+        if (!stem) continue;
+        const partner = byName.get(stem + start);
+        if (partner && partner.id !== v.id && !result.has(partner.id)) {
+          result.set(v.id, { end: partner, role: "end" });
+          result.set(partner.id, { end: v, role: "start" });
+          break;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Resolve a DateValueConfig to an epoch-ms instant. Mirrors the inline
+ * logic the single-variable path uses, factored out so the pairing path
+ * can reuse it without duplicating the relative / range branches.
+ */
+function pickDateMs(
+  config: import("@/lib/profiles/types").DateValueConfig,
+  rng: () => number,
+  submissionTime: number,
+): number {
+  if (config.mode === "relative") {
+    const days = config.relativeDays ?? 30;
+    const back = rng() * days * 24 * 60 * 60 * 1000;
+    return submissionTime - back;
+  }
+  const start = config.start ?? submissionTime - 30 * 24 * 60 * 60 * 1000;
+  const end = config.end ?? submissionTime;
+  return start + rng() * (end - start);
 }
 
 // ---------------------------------------------------------------------------

@@ -53,7 +53,10 @@ export function SurveySelector() {
   const selectSurvey = useSurveyStore((s) => s.selectSurvey);
 
   const [open, setOpen] = useState(false);
-  const [hiddenConversational, setHiddenConversational] = useState(0);
+  // Renamed from `hiddenConversational` — the server filter now also drops
+  // SocialListening surveys (and any future unsupported types), so the
+  // count is generic. UI copy below matches.
+  const [hiddenUnsupported, setHiddenUnsupported] = useState(0);
   const fetchedOnceRef = useRef(false);
 
   // Auto-fetch on mount, once.
@@ -97,7 +100,7 @@ export function SurveySelector() {
         fetchedAt: Date.now(),
         error: null,
       });
-      setHiddenConversational(json.hiddenCount ?? 0);
+      setHiddenUnsupported(json.hiddenCount ?? 0);
       if (json.truncated) {
         toast.warning("Survey list truncated", {
           description: `Showing ${json.count} surveys (pagination cap hit). Archive old ones to see more.`,
@@ -154,8 +157,8 @@ export function SurveySelector() {
           <div className="text-sm font-medium">Survey</div>
           <div className="text-xs text-muted-foreground">
             {list.length} {list.length === 1 ? "survey" : "surveys"} available
-            {hiddenConversational > 0
-              ? ` · ${hiddenConversational} conversational hidden`
+            {hiddenUnsupported > 0
+              ? ` · ${hiddenUnsupported} unsupported ${hiddenUnsupported === 1 ? "survey" : "surveys"} hidden`
               : ""}
             {surveys.truncated ? " · list truncated" : ""}
           </div>

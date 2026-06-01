@@ -34,7 +34,9 @@ import {
   extractQuestionRows,
   resolveScale,
 } from "@/lib/surveysparrow/types";
+import { computeShownQuestions } from "@/lib/surveysparrow/display-logic";
 import { inferAnswerType } from "@/lib/llm/prompts/response-prompt";
+import { injectMissingRequiredGatedAnswers } from "@/lib/generation/cascade-injector";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -175,12 +177,245 @@ export function validateResponseOutput(
     }
   }
 
+  // -------------------------------------------------------------------
+  // Display-logic post-filter (phase: display-logic-respect, generation)
+  // -------------------------------------------------------------------
+  //
+  // SurveySparrow surveys can hide questions conditionally — e.g. a
+  // "What went wrong?" follow-up that only shows to detractors. The
+  // prompt and validator both treat every answerable question as
+  // required-if-required, so a Promoter who correctly omits these
+  // questions (or returns an empty multi-choice array) racks up
+  // validation errors → retries → best-effort fallback. The push-time
+  // filter then drops those answers anyway, so the warnings are pure
+  // noise.
+  //
+  // Here we compute the shown-set ONCE from the answers we just
+  // collected, then drop errors AND best-effort answers for questions
+  // that wouldn't have been shown to this persona. The persona's other
+  // answers are the source of truth for evaluating each gate
+  // (chained logic handled by computeShownQuestions's order-aware walk).
+  //
+  // Conservative on uncertainty: if a gating question's answer is
+  // missing (LLM didn't return it / it failed validation), evaluateLogic
+  // returns false → the dependent question is treated as hidden → its
+  // errors are dropped. This mirrors push-time behavior so the two
+  // stages agree.
+  if (input.questions.length > 0 && hasAnyDisplayLogic(input.questions)) {
+    // Cascade injection FIRST, before the post-filter. Models consistently
+    // skip multi-select gated questions even with optimal prompt wording —
+    // the cascade-injector fills required gated questions whose gate is
+    // satisfied by the persona's other answers, in dependency order. If
+    // the LLM already generated downstream answers (e.g. opinion-scale
+    // ratings for specific venues) those would be dropped by the
+    // post-filter when the gateway is missing; injecting the gateway here
+    // means those downstream answers survive instead. See
+    // lib/generation/cascade-injector.ts for the algorithm + scope of
+    // what gets synthesised vs. left alone (text answers are never
+    // fabricated).
+    const injection = injectMissingRequiredGatedAnswers(
+      input.persona,
+      answers,
+      input.questions,
+    );
+    if (injection.injectedCount > 0) {
+      // Replace the answer map with the injected version. Note: injector
+      // doesn't mutate the input map, so we copy back here.
+      for (const [k, v] of Object.entries(injection.answers)) {
+        answers[k] = v;
+      }
+      // Any errors we already collected for a question we just injected
+      // are stale — drop them so the orchestrator doesn't trigger
+      // pointless retries. Using a Set keeps this O(errors+injected).
+      const injectedSet = new Set(injection.injectedQuestionIds.map(String));
+      for (let i = errors.length - 1; i >= 0; i--) {
+        if (injectedSet.has(errors[i]!.questionId)) errors.splice(i, 1);
+      }
+      warnings.push(
+        `Cascade injector synthesised ${injection.injectedCount} required gated answer(s) for ${input.persona.firstName}: ${injection.injectedQuestionIds.slice(0, 5).join(", ")}${injection.injectedQuestionIds.length > 5 ? ` (+${injection.injectedQuestionIds.length - 5} more)` : ""}.`,
+      );
+    }
+
+    const answerMap = toAnswerMapById(answers);
+    const shown = computeShownQuestions(input.questions, {
+      answersByQuestionId: answerMap,
+      variableValues: input.persona.variableValues,
+    });
+    const filteredErrors: ResponseValidationError[] = [];
+    for (const e of errors) {
+      const qidNum = parseInt(e.questionId, 10);
+      // Non-question-scoped errors (e.g. "Output is not an object") keep.
+      if (!Number.isFinite(qidNum)) {
+        filteredErrors.push(e);
+        continue;
+      }
+      if (shown.has(qidNum)) {
+        // The question's visibility gate IS satisfied by the persona's
+        // other answers. If this is a "missing" or "empty multi-choice"
+        // error, rewrite it into a hyper-specific retry directive — the
+        // LLM otherwise treats `Conditional` as a soft hint and defaults
+        // to skip, especially on multi-select gates. We saw a 0/20
+        // selection rate on Fontainebleau's area-picker even with
+        // positive-framed prompt instructions; abstract rules aren't
+        // enough — the retry needs to spell out WHICH gate is satisfied,
+        // WHICH choice IDs are valid, and HOW MANY to pick.
+        const augmented = augmentGatedRequiredError(
+          e,
+          questionsById.get(e.questionId),
+          answerMap,
+        );
+        filteredErrors.push(augmented);
+      }
+      // else: this question wouldn't have been shown to the persona —
+      // its error is moot. Drop silently.
+    }
+    // Also drop best-effort answers we accidentally stored for hidden
+    // questions (e.g. clamped multi-choice we no longer want). Push-time
+    // would have filtered these too, but keeping the validator's output
+    // tidy avoids confusing preview displays.
+    for (const qidStr of Object.keys(answers)) {
+      const qidNum = parseInt(qidStr, 10);
+      if (Number.isFinite(qidNum) && !shown.has(qidNum)) {
+        delete answers[qidStr];
+      }
+    }
+    return {
+      ok: filteredErrors.length === 0,
+      answers,
+      errors: filteredErrors,
+      warnings,
+    };
+  }
+
   return {
     ok: errors.length === 0,
     answers,
     errors,
     warnings,
   };
+}
+
+// Quick check used to skip the shown-set computation entirely when the
+// survey has no conditional questions — saves a survey-order sort + walk
+// on every validation call. Most surveys won't have any.
+function hasAnyDisplayLogic(questions: Question[]): boolean {
+  for (const q of questions) {
+    if (q.display_logic?.logics && q.display_logic.logics.length > 0) return true;
+  }
+  return false;
+}
+
+// computeShownQuestions wants a Map<number, AnswerValue>; the validator
+// stores answers keyed by string id. Tiny adapter.
+function toAnswerMapById(answers: Record<string, AnswerValue>): Map<number, AnswerValue> {
+  const m = new Map<number, AnswerValue>();
+  for (const [k, v] of Object.entries(answers)) {
+    const n = parseInt(k, 10);
+    if (Number.isFinite(n)) m.set(n, v);
+  }
+  return m;
+}
+
+// ---------------------------------------------------------------------------
+// Gate-satisfied retry directive
+// ---------------------------------------------------------------------------
+//
+// Models systematically skip multi-select questions that sit behind a
+// display_logic gate, even with positive-framed prompt instructions
+// ("Conditional ≠ optional"). In testing against the Fontainebleau survey
+// the LLM picked "Yes, continue" at 100% rate but selected ZERO areas in
+// the immediately-following required multi-select gate — every single
+// time. Generic "Required question is missing from output" retry messages
+// don't break that prior; the model needs the gate's satisfaction made
+// concrete in front of it, plus the valid IDs, plus a pick recommendation.
+//
+// This helper rewrites a "missing" or "empty-array" error for a
+// gate-satisfied conditional question into a structured retry directive.
+// summarizeResponseValidationErrors keeps the first 4 errors verbatim, so
+// the rewritten message flows through to the retry prompt unchanged.
+
+function augmentGatedRequiredError(
+  e: ResponseValidationError,
+  question: Question | undefined,
+  answersByQuestionId: Map<number, AnswerValue>,
+): ResponseValidationError {
+  if (!question) return e;
+  const logic = question.display_logic;
+  if (!logic?.logics || logic.logics.length === 0) return e;
+
+  // Only augment the failure modes we observe in production:
+  //   (a) "Required question is missing from output." — LLM omitted entirely
+  //   (b) "Multi-choice answer must include at least 1 option." — empty []
+  //   (c) "Expected array of choice IDs." — wrong shape
+  // Other errors (e.g. invalid choice ID, range violations) already include
+  // actionable context from the per-type validators.
+  const isMissing = e.message === "Required question is missing from output.";
+  const isEmptyMulti = e.message === "Multi-choice answer must include at least 1 option.";
+  const isWrongShape = /^Expected array of choice IDs\./.test(e.message);
+  if (!isMissing && !isEmptyMulti && !isWrongShape) return e;
+
+  const display = extractQuestionDisplay(question);
+  const parts: string[] = [];
+  parts.push(`Required gated question "${display.text}" was not answered.`);
+
+  // Describe which prior answers satisfy the gate so the LLM SEES the
+  // implication of its own earlier picks.
+  const satisfiedClauses: string[] = [];
+  for (const c of logic.logics) {
+    if (c.type !== "question" || c.question_id == null) continue;
+    const upstreamAnswer = answersByQuestionId.get(c.question_id);
+    if (!upstreamAnswer) continue;
+    if (c.comparator === "isSelected" && c.choice_id != null) {
+      satisfiedClauses.push(
+        `you answered Q${c.question_id} including choice id ${c.choice_id}`,
+      );
+    } else if (c.comparator === "equals" && c.value != null) {
+      satisfiedClauses.push(
+        `you answered Q${c.question_id} as ${JSON.stringify(c.value)}`,
+      );
+    }
+  }
+  if (satisfiedClauses.length > 0) {
+    parts.push(`GATE IS SATISFIED: ${satisfiedClauses.join(" AND ")}.`);
+  }
+
+  // Enumerate valid choice IDs (multi/single choice case) so the retry
+  // prompt has them right next to the error — no hunting back through
+  // the QUESTIONS block.
+  const choices = display.choices ?? [];
+  if (choices.length > 0) {
+    const sample = choices.slice(0, 12).map((c) => `${c.id} (${truncate(c.text, 40)})`);
+    const extra = choices.length > 12 ? ` …+${choices.length - 12} more` : "";
+    parts.push(`Valid choice IDs: ${sample.join(", ")}${extra}.`);
+  }
+
+  // Concrete pick recommendation for the most common case (multi-select
+  // gate). Keeps the directive short but unambiguous. `multiple_answers`
+  // isn't on the public Question type; the prompt code reads it via the
+  // same assertion, so we mirror that pattern here.
+  const isMultiSelect =
+    (question as unknown as { multiple_answers?: unknown }).multiple_answers === true;
+  if (isMultiSelect && choices.length >= 2) {
+    const target = Math.min(4, Math.max(2, Math.ceil(choices.length / 2)));
+    parts.push(
+      `Pick 2–${target} of the choice IDs and emit "${question.id}": [<ids>]. Do NOT return empty array, null, or omit the key.`,
+    );
+  } else if (choices.length >= 1) {
+    parts.push(
+      `Pick ONE of the choice IDs and emit "${question.id}": [<id>].`,
+    );
+  } else {
+    parts.push(
+      `Provide a non-empty answer for "${question.id}". Do NOT omit.`,
+    );
+  }
+
+  return { ...e, message: parts.join(" ") };
+}
+
+function truncate(s: string, max: number): string {
+  if (!s) return "";
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
 // ---------------------------------------------------------------------------
@@ -576,6 +811,13 @@ function validateMatrixIdMap(
   if (rowIds.length === 0) {
     return rowsMissingError(type);
   }
+  // Column ID enforcement (phase: matrix-likert-choice-ids):
+  // SS rejects matrix answers whose IDs aren't in the question's actual
+  // column set with the generic "Invalid value passed or missing values
+  // in payload" error. We catch that locally so the retry loop can fix
+  // it instead of shipping a failing payload. Empty validIds (e.g.
+  // workspaces where extractQuestionColumns returns []) → skip the check.
+  const validIds = new Set(extractQuestionColumns(question).map((c) => c.id));
   const rows: Record<string, number> = {};
   let missing = 0;
   for (const rowId of rowIds) {
@@ -587,6 +829,14 @@ function validateMatrixIdMap(
     const id = coerceInteger(Array.isArray(v) ? v[0] : v);
     if (id === null) {
       return { error: { field: `rows.${rowId}`, message: `Could not coerce ID from: ${JSON.stringify(v)}` } };
+    }
+    if (validIds.size > 0 && !validIds.has(id)) {
+      return {
+        error: {
+          field: `rows.${rowId}`,
+          message: `Value ${id} is not a valid column ID for this matrix question. Valid IDs: ${Array.from(validIds).slice(0, 5).join(", ")}${validIds.size > 5 ? `, …(+${validIds.size - 5} more)` : ""}.`,
+        },
+      };
     }
     rows[String(rowId)] = id;
   }
@@ -607,6 +857,9 @@ function validateMatrixIdArrayMap(value: unknown, question: Question): ValidateO
   if (rowIds.length === 0) {
     return rowsMissingError("matrix_multiple");
   }
+  // Same column-ID enforcement as the single-answer path (see comment
+  // there for rationale).
+  const validIds = new Set(extractQuestionColumns(question).map((c) => c.id));
   const rows: Record<string, number[]> = {};
   let missing = 0;
   for (const rowId of rowIds) {
@@ -621,6 +874,14 @@ function validateMatrixIdArrayMap(value: unknown, question: Question): ValidateO
       const id = coerceInteger(x);
       if (id === null) {
         return { error: { field: `rows.${rowId}`, message: `Could not coerce ID from: ${JSON.stringify(x)}` } };
+      }
+      if (validIds.size > 0 && !validIds.has(id)) {
+        return {
+          error: {
+            field: `rows.${rowId}`,
+            message: `Value ${id} is not a valid column ID for this matrix question. Valid IDs: ${Array.from(validIds).slice(0, 5).join(", ")}${validIds.size > 5 ? `, …(+${validIds.size - 5} more)` : ""}.`,
+          },
+        };
       }
       ids.push(id);
     }

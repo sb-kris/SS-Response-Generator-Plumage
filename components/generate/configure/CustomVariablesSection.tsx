@@ -135,13 +135,20 @@ interface VariableForm {
   apiIdentifierTouched: boolean;
   type: VariableType;
   // STRING
+  stringMode: "options" | "examples";
   stringOptions: StringOption[];
   stringOptionDraft: string;
+  stringExamples: string[];
+  stringExampleDraft: string;
+  stringAllowBlank: boolean;
+  stringBlankWeight: string;
   // NUMBER
   numberMode: "range" | "static";
   numberMin: string;
   numberMax: string;
   numberStatic: string;
+  numberAllowDecimals: boolean;
+  numberDecimalPlaces: string;
   // DATE
   dateMode: "relative" | "range";
   dateRelativeDays: string;
@@ -163,12 +170,19 @@ const EMPTY_FORM: VariableForm = {
   apiIdentifier: "",
   apiIdentifierTouched: false,
   type: "STRING",
+  stringMode: "options",
   stringOptions: [],
   stringOptionDraft: "",
+  stringExamples: [],
+  stringExampleDraft: "",
+  stringAllowBlank: false,
+  stringBlankWeight: "20",
   numberMode: "range",
   numberMin: "1",
   numberMax: "100",
   numberStatic: "0",
+  numberAllowDecimals: false,
+  numberDecimalPlaces: "2",
   dateMode: "relative",
   dateRelativeDays: "30",
   dateStart: daysAgoStr(30),
@@ -208,13 +222,18 @@ function variableToForm(v: CustomVariable): VariableForm {
     type: v.type,
   };
   if (v.values.kind === "string") {
+    const c = v.values.config;
     return {
       ...base,
-      stringOptions: v.values.config.options.map((o) => ({
+      stringMode: c.mode ?? "options",
+      stringOptions: c.options.map((o) => ({
         id: crypto.randomUUID(),
         text: o.text,
         weight: o.weight,
       })),
+      stringExamples: c.examples ?? [],
+      stringAllowBlank: c.allowBlank === true,
+      stringBlankWeight: String(c.blankWeight ?? 20),
     };
   }
   if (v.values.kind === "number") {
@@ -225,6 +244,8 @@ function variableToForm(v: CustomVariable): VariableForm {
       numberMin: String(c.min ?? 1),
       numberMax: String(c.max ?? 100),
       numberStatic: String(c.staticValue ?? 0),
+      numberAllowDecimals: c.allowDecimals === true,
+      numberDecimalPlaces: String(c.decimalPlaces ?? 2),
     };
   }
   if (v.values.kind === "date") {
@@ -250,7 +271,15 @@ function formToValues(form: VariableForm): CustomVariableValues {
   if (form.type === "STRING") {
     return {
       kind: "string",
-      config: { options: form.stringOptions.map((o) => ({ text: o.text, weight: o.weight })) },
+      config: {
+        mode: form.stringMode,
+        options: form.stringOptions.map((o) => ({ text: o.text, weight: o.weight })),
+        examples: form.stringMode === "examples" ? [...form.stringExamples] : undefined,
+        allowBlank: form.stringAllowBlank,
+        blankWeight: form.stringAllowBlank
+          ? Math.max(0, Math.min(100, parseInt(form.stringBlankWeight, 10) || 0))
+          : undefined,
+      },
     };
   }
   if (form.type === "NUMBER") {
@@ -262,6 +291,10 @@ function formToValues(form: VariableForm): CustomVariableValues {
         max: form.numberMode === "range" ? parseFloat(form.numberMax) : undefined,
         staticValue:
           form.numberMode === "static" ? parseFloat(form.numberStatic) : undefined,
+        allowDecimals: form.numberAllowDecimals,
+        decimalPlaces: form.numberAllowDecimals
+          ? Math.max(1, Math.min(4, parseInt(form.numberDecimalPlaces, 10) || 2))
+          : undefined,
       },
     };
   }
@@ -300,8 +333,24 @@ function validateForm(
   else if (variables.some((v) => v.apiIdentifier === form.apiIdentifier && v.id !== editingId))
     errs.push("API Identifier is already in use by another variable.");
 
-  if (form.type === "STRING" && form.stringOptions.length === 0)
-    errs.push("Add at least one option for this STRING variable.");
+  if (form.type === "STRING") {
+    // Blank weight (if enabled) must be 0–100.
+    let blankW = 0;
+    if (form.stringAllowBlank) {
+      blankW = parseInt(form.stringBlankWeight, 10);
+      if (!Number.isFinite(blankW) || blankW < 0 || blankW > 100) {
+        errs.push("Blank weight must be a number between 0 and 100.");
+      }
+    }
+    // At least one non-blank source is required unless blank is 100%.
+    const need100Blank = form.stringAllowBlank && blankW === 100;
+    if (form.stringMode === "options" && form.stringOptions.length === 0 && !need100Blank) {
+      errs.push("Add at least one option, or set blank weight to 100%.");
+    }
+    if (form.stringMode === "examples" && form.stringExamples.length === 0 && !need100Blank) {
+      errs.push("Add at least one example, or set blank weight to 100%.");
+    }
+  }
   if (form.type === "PERSONA" && !form.personaField)
     errs.push("Select a persona field.");
   if (form.type === "NUMBER" && form.numberMode === "range") {
@@ -312,6 +361,12 @@ function validateForm(
   }
   if (form.type === "NUMBER" && form.numberMode === "static") {
     if (isNaN(parseFloat(form.numberStatic))) errs.push("Enter a valid static value.");
+  }
+  if (form.type === "NUMBER" && form.numberAllowDecimals) {
+    const places = parseInt(form.numberDecimalPlaces, 10);
+    if (!Number.isFinite(places) || places < 1 || places > 4) {
+      errs.push("Decimal places must be between 1 and 4.");
+    }
   }
   if (form.type === "DATE" && form.dateMode === "relative") {
     const days = parseInt(form.dateRelativeDays, 10);
@@ -327,19 +382,29 @@ function validateForm(
 
 function valueSummary(v: CustomVariable): string {
   if (v.values.kind === "string") {
-    const n = v.values.config.options.length;
-    if (n === 0) return "No options";
-    if (n <= 3)
-      return v.values.config.options.map((o) => o.text).join(", ");
-    return `${v.values.config.options
+    const c = v.values.config;
+    const mode = c.mode ?? "options";
+    const blankSuffix =
+      c.allowBlank && (c.blankWeight ?? 0) > 0 ? ` · ${c.blankWeight}% blank` : "";
+    if (mode === "examples") {
+      const examples = c.examples ?? [];
+      if (examples.length === 0) return `Examples: (none)${blankSuffix}`;
+      if (examples.length <= 2) return `Examples: ${examples.join(", ")}${blankSuffix}`;
+      return `Examples: ${examples.slice(0, 2).join(", ")}, +${examples.length - 2} more${blankSuffix}`;
+    }
+    const n = c.options.length;
+    if (n === 0) return `No options${blankSuffix}`;
+    if (n <= 3) return `${c.options.map((o) => o.text).join(", ")}${blankSuffix}`;
+    return `${c.options
       .slice(0, 2)
       .map((o) => o.text)
-      .join(", ")}, +${n - 2} more`;
+      .join(", ")}, +${n - 2} more${blankSuffix}`;
   }
   if (v.values.kind === "number") {
     const c = v.values.config;
+    const dec = c.allowDecimals ? ` · ${c.decimalPlaces ?? 2}-dp decimals` : "";
     if (c.mode === "static") return `Static: ${c.staticValue ?? 0}`;
-    return `Range: ${c.min ?? "?"} – ${c.max ?? "?"}`;
+    return `Range: ${c.min ?? "?"} – ${c.max ?? "?"}${dec}`;
   }
   if (v.values.kind === "date") {
     const c = v.values.config;
@@ -521,6 +586,31 @@ export function CustomVariablesSection() {
         ...o,
         weight: byKey.get(o.id) ?? o.weight,
       })),
+    }));
+  }
+
+  // STRING example helpers (mode === "examples"). Examples don't carry
+  // weights — the generator flat-weights them and applies pattern-based
+  // variation per response. Dedupe is case-insensitive to match how the
+  // option editor handles dupes.
+  function addStringExample() {
+    const text = form.stringExampleDraft.trim();
+    if (!text) return;
+    if (form.stringExamples.some((e) => e.toLowerCase() === text.toLowerCase())) {
+      toast.warning("Duplicate example", { description: `"${text}" is already in the list.` });
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      stringExamples: [...prev.stringExamples, text],
+      stringExampleDraft: "",
+    }));
+  }
+
+  function removeStringExample(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      stringExamples: prev.stringExamples.filter((_, i) => i !== index),
     }));
   }
 
@@ -793,16 +883,27 @@ export function CustomVariablesSection() {
               {/* Type-specific controls */}
               <div className="mt-3">
                 {form.type === "STRING" && (
-                  <StringOptionsEditor
+                  <StringConfig
+                    mode={form.stringMode}
+                    onModeChange={(v) => setF("stringMode", v)}
                     options={form.stringOptions}
-                    draft={form.stringOptionDraft}
+                    optionDraft={form.stringOptionDraft}
                     optionSum={optionSum}
                     optionSumOk={optionSumOk}
-                    onDraftChange={(v) => setF("stringOptionDraft", v)}
-                    onAdd={addStringOption}
-                    onRemove={removeStringOption}
-                    onWeightChange={changeStringOptionWeight}
+                    onOptionDraftChange={(v) => setF("stringOptionDraft", v)}
+                    onAddOption={addStringOption}
+                    onRemoveOption={removeStringOption}
+                    onOptionWeightChange={changeStringOptionWeight}
                     onAutoBalance={autoBalanceStringOptions}
+                    examples={form.stringExamples}
+                    exampleDraft={form.stringExampleDraft}
+                    onExampleDraftChange={(v) => setF("stringExampleDraft", v)}
+                    onAddExample={addStringExample}
+                    onRemoveExample={removeStringExample}
+                    allowBlank={form.stringAllowBlank}
+                    onAllowBlankChange={(v) => setF("stringAllowBlank", v)}
+                    blankWeight={form.stringBlankWeight}
+                    onBlankWeightChange={(v) => setF("stringBlankWeight", v)}
                   />
                 )}
                 {form.type === "NUMBER" && (
@@ -811,10 +912,14 @@ export function CustomVariablesSection() {
                     min={form.numberMin}
                     max={form.numberMax}
                     staticVal={form.numberStatic}
+                    allowDecimals={form.numberAllowDecimals}
+                    decimalPlaces={form.numberDecimalPlaces}
                     onModeChange={(v) => setF("numberMode", v)}
                     onMinChange={(v) => setF("numberMin", v)}
                     onMaxChange={(v) => setF("numberMax", v)}
                     onStaticChange={(v) => setF("numberStatic", v)}
+                    onAllowDecimalsChange={(v) => setF("numberAllowDecimals", v)}
+                    onDecimalPlacesChange={(v) => setF("numberDecimalPlaces", v)}
                   />
                 )}
                 {form.type === "DATE" && (
@@ -891,6 +996,233 @@ function TypeBadge({ type }: { type: VariableType }) {
     >
       {type}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// STRING config wrapper — mode selector + (options | examples) editor +
+// allow-blank toggle. Backward compatible: mode defaults to "options" so
+// existing variables open with the same UI they had before.
+// ---------------------------------------------------------------------------
+
+interface StringConfigProps {
+  mode: "options" | "examples";
+  onModeChange: (v: "options" | "examples") => void;
+  // Options-mode props (mirror of StringOptionsEditor's contract)
+  options: StringOption[];
+  optionDraft: string;
+  optionSum: number;
+  optionSumOk: boolean;
+  onOptionDraftChange: (v: string) => void;
+  onAddOption: () => void;
+  onRemoveOption: (id: string) => void;
+  onOptionWeightChange: (id: string, raw: string) => void;
+  onAutoBalance: () => void;
+  // Examples-mode props
+  examples: string[];
+  exampleDraft: string;
+  onExampleDraftChange: (v: string) => void;
+  onAddExample: () => void;
+  onRemoveExample: (index: number) => void;
+  // Blank toggle
+  allowBlank: boolean;
+  onAllowBlankChange: (v: boolean) => void;
+  blankWeight: string;
+  onBlankWeightChange: (v: string) => void;
+}
+
+function StringConfig({
+  mode,
+  onModeChange,
+  options,
+  optionDraft,
+  optionSum,
+  optionSumOk,
+  onOptionDraftChange,
+  onAddOption,
+  onRemoveOption,
+  onOptionWeightChange,
+  onAutoBalance,
+  examples,
+  exampleDraft,
+  onExampleDraftChange,
+  onAddExample,
+  onRemoveExample,
+  allowBlank,
+  onAllowBlankChange,
+  blankWeight,
+  onBlankWeightChange,
+}: StringConfigProps) {
+  return (
+    <div className="space-y-3">
+      {/* Mode selector */}
+      <div className="space-y-1">
+        <p className="text-xs font-medium">Value source</p>
+        <div className="flex gap-1.5">
+          {(
+            [
+              { id: "options", label: "Fixed options" },
+              { id: "examples", label: "Generate from examples" },
+            ] as const
+          ).map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onModeChange(m.id)}
+              className={cn(
+                "rounded-md border px-3 py-1 text-xs font-medium transition-colors",
+                mode === m.id
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:border-primary/50 hover:bg-primary/10",
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Use fixed options for known segments, or examples when Plumage should
+          generate similar values.
+        </p>
+      </div>
+
+      {/* Options-mode editor */}
+      {mode === "options" && (
+        <StringOptionsEditor
+          options={options}
+          draft={optionDraft}
+          optionSum={optionSum}
+          optionSumOk={optionSumOk}
+          onDraftChange={onOptionDraftChange}
+          onAdd={onAddOption}
+          onRemove={onRemoveOption}
+          onWeightChange={onOptionWeightChange}
+          onAutoBalance={onAutoBalance}
+        />
+      )}
+
+      {/* Examples-mode editor */}
+      {mode === "examples" && (
+        <StringExamplesEditor
+          examples={examples}
+          draft={exampleDraft}
+          onDraftChange={onExampleDraftChange}
+          onAdd={onAddExample}
+          onRemove={onRemoveExample}
+        />
+      )}
+
+      {/* Allow-blank toggle */}
+      <div className="space-y-1.5 rounded-md border bg-muted/20 p-2.5">
+        <label className="flex items-center gap-2 text-xs font-medium">
+          <input
+            type="checkbox"
+            checked={allowBlank}
+            onChange={(e) => onAllowBlankChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-input"
+          />
+          Allow blank value
+        </label>
+        <p className="text-[11px] text-muted-foreground">
+          Include blank when some responses should not carry this variable.
+          Blank values are sent as empty strings to SurveySparrow.
+        </p>
+        {allowBlank && (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs text-muted-foreground">Blank weight</span>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={100}
+              value={blankWeight}
+              onChange={(e) => onBlankWeightChange(e.target.value)}
+              className="h-7 w-16 px-2 text-right tabular-nums text-xs"
+            />
+            <span className="text-xs text-muted-foreground">%</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// STRING examples editor — flat list of example strings. Plumage emits
+// similar values per response (digit runs in the example get randomized;
+// free-form text passes through). No per-entry weights; the generator
+// flat-weights examples.
+// ---------------------------------------------------------------------------
+
+interface StringExamplesEditorProps {
+  examples: string[];
+  draft: string;
+  onDraftChange: (v: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}
+
+function StringExamplesEditor({
+  examples,
+  draft,
+  onDraftChange,
+  onAdd,
+  onRemove,
+}: StringExamplesEditorProps) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium">Examples</p>
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onAdd();
+            }
+          }}
+          placeholder="e.g. TCK-102938 or Certified Dealer"
+          className="h-8 text-sm"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onAdd}
+          disabled={!draft.trim()}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add
+        </Button>
+      </div>
+      {examples.length > 0 && (
+        <div className="space-y-1.5 rounded-md border bg-muted/20 p-2.5">
+          {examples.map((ex, i) => (
+            <div key={`${ex}-${i}`} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">{ex}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                aria-label={`Remove example ${ex}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+          <p className="pt-1 text-[11px] text-muted-foreground">
+            Digit runs in IDs are randomized per response (e.g. <code className="font-mono">TCK-102938</code> →{" "}
+            <code className="font-mono">TCK-184502</code>). Free-form text is rotated verbatim — add more variants for variety.
+          </p>
+        </div>
+      )}
+      {examples.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No examples yet. Add at least one.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1015,10 +1347,14 @@ interface NumberConfigProps {
   min: string;
   max: string;
   staticVal: string;
+  allowDecimals: boolean;
+  decimalPlaces: string;
   onModeChange: (v: "range" | "static") => void;
   onMinChange: (v: string) => void;
   onMaxChange: (v: string) => void;
   onStaticChange: (v: string) => void;
+  onAllowDecimalsChange: (v: boolean) => void;
+  onDecimalPlacesChange: (v: string) => void;
 }
 
 function NumberConfig({
@@ -1026,10 +1362,14 @@ function NumberConfig({
   min,
   max,
   staticVal,
+  allowDecimals,
+  decimalPlaces,
   onModeChange,
   onMinChange,
   onMaxChange,
   onStaticChange,
+  onAllowDecimalsChange,
+  onDecimalPlacesChange,
 }: NumberConfigProps) {
   return (
     <div className="space-y-3">
@@ -1084,6 +1424,35 @@ function NumberConfig({
           />
         </div>
       )}
+      {/* Allow decimals — applies to range mode. Static mode honors the
+          literal value the user enters regardless of this flag. */}
+      <div className="space-y-1.5 rounded-md border bg-muted/20 p-2.5">
+        <label className="flex items-center gap-2 text-xs font-medium">
+          <input
+            type="checkbox"
+            checked={allowDecimals}
+            onChange={(e) => onAllowDecimalsChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-input"
+          />
+          Allow decimals
+        </label>
+        <p className="text-[11px] text-muted-foreground">
+          Keep off for counts and IDs. Turn on for currency, amounts, scores, or measurements.
+        </p>
+        {allowDecimals && (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs text-muted-foreground">Decimal places</span>
+            <Input
+              type="number"
+              min={1}
+              max={4}
+              value={decimalPlaces}
+              onChange={(e) => onDecimalPlacesChange(e.target.value)}
+              className="h-7 w-14 px-2 text-right tabular-nums text-xs"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1165,6 +1534,9 @@ function DateConfig({
           </div>
         </div>
       )}
+      <p className="text-[11px] text-muted-foreground">
+        Date variables are sent to SurveySparrow as <code className="font-mono">yyyy-mm-dd</code>.
+      </p>
     </div>
   );
 }

@@ -110,8 +110,39 @@ export interface StringValueOption {
   weight: number;
 }
 
+/**
+ * STRING variable configuration. Two generation modes:
+ *
+ *   - "options" (default; original behavior): each persona picks one of
+ *     `options` by weight.
+ *
+ *   - "examples": user provides one or more example values; Plumage emits
+ *     similar values per persona via pattern-based variation (digit runs
+ *     in IDs are randomized; free-form text is picked verbatim with
+ *     occasional case/whitespace variation). Cheap and deterministic —
+ *     no per-response LLM calls.
+ *
+ * Both modes optionally allow a weighted BLANK output. When the persona
+ * draws a blank, the variable is sent as an empty string `""` in the SS
+ * payload (which SS treats as "not provided" without rejecting the
+ * response). When `allowBlank` is true, `blankWeight` participates in
+ * the weighted draw alongside options/examples.
+ *
+ * Backward compatibility: every new field is optional. A profile saved
+ * before this schema change loads with mode=options + allowBlank=false.
+ */
 export interface StringValueConfig {
+  /** Default: "options". Older profiles omit this field; readers must
+   *  treat undefined as "options". */
+  mode?: "options" | "examples";
+  /** Weighted fixed options (used when mode === "options"). */
   options: StringValueOption[];
+  /** Source patterns for example-based generation (used when mode === "examples"). */
+  examples?: string[];
+  /** When true, some responses get a blank value for this variable. */
+  allowBlank?: boolean;
+  /** Weight assigned to the blank outcome (0–100). Must sum with option/example weights to 100. */
+  blankWeight?: number;
 }
 
 export interface NumberValueConfig {
@@ -122,6 +153,15 @@ export interface NumberValueConfig {
   max?: number;
   /** Fixed value emitted for every persona (static mode). */
   staticValue?: number;
+  /**
+   * When true, range-mode generation emits decimal values rounded to
+   * `decimalPlaces`. Default: false (whole numbers — safer for counts,
+   * IDs, NPS-style values). Static mode honors the literal value the user
+   * entered regardless of this flag.
+   */
+  allowDecimals?: boolean;
+  /** 1–4 decimal places when `allowDecimals` is true. Default: 2. */
+  decimalPlaces?: number;
 }
 
 export interface DateValueConfig {
